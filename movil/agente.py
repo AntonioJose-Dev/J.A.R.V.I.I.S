@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PUERTO = int(os.environ.get("JARVIS_MOVIL_PUERTO", "8765"))
 RUTA_TOKEN = os.path.expanduser("~/.jarvis_token")
-VERSION = "6"
+VERSION = "7"
 
 
 def ejecutar(cmd: list[str], timeout: float = 30) -> str:
@@ -222,7 +222,13 @@ def actualizar(_v: str) -> dict:
 
 def diagnostico(_v: str) -> dict:
     """Prueba los comandos de Termux:API que más fallan y devuelve solo códigos y errores (no el contenido)."""
-    salida = {}
+    salida = {"termux": {"origen": os.environ.get("TERMUX_APK_RELEASE", "?"),
+                         "version": os.environ.get("TERMUX_VERSION", "?")}}
+    try:  # qué tienda instaló cada app de Termux
+        r = subprocess.run(["pm", "list", "packages", "-i", "com.termux"], capture_output=True, text=True, timeout=20)
+        salida["instaladas"] = [l.removeprefix("package:") for l in r.stdout.split("\n") if l.strip()]
+    except Exception as e:  # noqa: BLE001
+        salida["instaladas"] = f"error {type(e).__name__}"
     for nombre, cmd, tiempo in (
         ("notificaciones", ["termux-notification-list"], 25),
         ("ubicacion_red", ["termux-location", "-p", "network", "-r", "last"], 25),
