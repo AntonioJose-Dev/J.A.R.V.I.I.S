@@ -117,8 +117,9 @@ def decidir_boton_accion(user_id: int | None, permitidos: frozenset[int], data: 
 
 
 def id_de_boton(data: str | None) -> int | None:
+    """El número de la acción en un botón: 'llamar:7' → 7, 'acc:7:si' → 7, 'pc:7:no' → 7."""
     try:
-        return int((data or "").split(":", 1)[1])
+        return int((data or "").split(":")[1])
     except (IndexError, ValueError):
         return None
 

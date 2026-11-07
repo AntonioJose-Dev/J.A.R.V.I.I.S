@@ -172,6 +172,9 @@ def test_confirmacion_caducada(memoria):
 
 def test_id_de_boton():
     assert id_de_boton("llamar:42") == 42
+    # Los botones Sí/No de acciones del PC y del móvil llevan tres partes (fallo real del 07/11)
+    assert id_de_boton("acc:5:si") == 5
+    assert id_de_boton("pc:7:no") == 7
     assert id_de_boton("basura") is None
     assert id_de_boton(None) is None
 
