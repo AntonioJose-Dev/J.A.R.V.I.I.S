@@ -24,7 +24,9 @@ import numpy as np
 from livekit.agents import llm
 from telegram import Update
 from telegram.constants import ChatAction
-from telegram.ext import Application, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters
+
+from . import telefono
 
 from .config import elegir_plan
 from .core import (
@@ -80,6 +82,28 @@ def que_enviar(me_mando_audio: bool, siempre_voz: bool) -> tuple[bool, bool]:
     if me_mando_audio:
         return False, True
     return True, siempre_voz
+
+
+def decidir_boton(user_id: int | None, permitidos: frozenset[int], data: str | None,
+                  llamada: dict | None, caducada: bool) -> str:
+    """Qué hacer al pulsar un botón de llamada: 'llamar', 'cancelar', 'caducada', 'ya_gestionada' o 'ignorar'."""
+    if user_id is None or user_id not in permitidos or not data or llamada is None:
+        return "ignorar"
+    accion = data.split(":", 1)[0]
+    if accion not in ("llamar", "cancelar"):
+        return "ignorar"
+    if llamada["estado"] != "pendiente":
+        return "ya_gestionada"
+    if accion == "llamar" and caducada:
+        return "caducada"
+    return accion
+
+
+def id_de_boton(data: str | None) -> int | None:
+    try:
+        return int((data or "").split(":", 1)[1])
+    except (IndexError, ValueError):
+        return None
 
 
 def decidir(user_id: int | None, permitidos: frozenset[int], tipo: str | None) -> str:
@@ -204,6 +228,41 @@ class JarvisTelegram:
         pcm = b"".join(bytes(f.data) for f in frames)
         return pcm_a_ogg_opus(pcm, frames[0].sample_rate, frames[0].num_channels)
 
+    async def boton_llamada(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        q, user = update.callback_query, update.effective_user
+        call_id = id_de_boton(q.data)
+        llamada = self.memory.get_call(call_id) if call_id is not None else None
+        accion = decidir_boton(user.id if user else None, self.permitidos, q.data, llamada,
+                               bool(llamada) and telefono.caducada(llamada))
+        if accion == "ignorar":
+            log.warning("Botón ignorado: id=%s", user.id if user else "?")
+            await q.answer()
+            return
+        await q.answer()
+        quien = f"{llamada['nombre']} ({llamada['numero']})"
+        if accion == "ya_gestionada":
+            await q.edit_message_reply_markup(None)
+            return
+        if accion == "cancelar":
+            self.memory.set_call_status(call_id, "cancelada", only_if="pendiente")
+            await q.edit_message_text(f"❌ Llamada a {quien} cancelada.")
+            return
+        if accion == "caducada":
+            self.memory.set_call_status(call_id, "caducada", only_if="pendiente")
+            await q.edit_message_text(f"⌛ La confirmación para llamar a {quien} ha caducado. Pídemelo otra vez.")
+            return
+        # accion == "llamar": marcamos como 'marcando' solo si seguía pendiente (evita dobles pulsaciones)
+        if not self.memory.set_call_status(call_id, "marcando", only_if="pendiente"):
+            await q.edit_message_reply_markup(None)
+            return
+        await q.edit_message_text(f"📞 Llamando a {quien}… Te cuento cuando termine.")
+        try:
+            await telefono.iniciar_llamada(llamada)
+        except Exception as e:
+            log.exception("No pude iniciar la llamada")
+            self.memory.set_call_status(call_id, "fallida")
+            await q.message.reply_text(f"No he podido iniciar la llamada: {type(e).__name__}. Revisa la configuración.")
+
     async def manejar(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         msg, user = update.effective_message, update.effective_user
         if msg is None:
@@ -261,9 +320,12 @@ class JarvisTelegram:
                     log.exception("No pude generar la nota de voz")
                     if not con_texto:  # que la respuesta no se pierda
                         await msg.reply_text(respuesta)
-        except Exception:
+        except Exception as e:
             log.exception("Error atendiendo un mensaje")
-            await msg.reply_text("He tenido un problema técnico, señor. Inténtelo de nuevo en un momento.")
+            if "429" in str(e) or "rate limit" in str(e).lower():
+                await msg.reply_text("Estoy al límite de uso gratuito por minuto, señor. Inténtelo en un minuto.")
+            else:
+                await msg.reply_text("He tenido un problema técnico, señor. Inténtelo de nuevo en un momento.")
 
 
 def main() -> None:
@@ -278,6 +340,7 @@ def main() -> None:
         sys.exit(f"ERROR: {e}")
     print(f"JARVIS en Telegram: {bot.plan.describir()}. Ctrl+C para parar.")
     app = Application.builder().token(token).post_init(bot.iniciar).post_shutdown(bot.cerrar).build()
+    app.add_handler(CallbackQueryHandler(bot.boton_llamada))
     app.add_handler(MessageHandler(filters.ALL, bot.manejar))
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 

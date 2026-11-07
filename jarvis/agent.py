@@ -54,7 +54,8 @@ def main() -> None:
             print(f"JARVIS: {elegir_plan(os.environ).describir()}")
         except ValueError as e:
             sys.exit(f"ERROR: {e}")
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
+    # Con nombre propio: así no se mete en las salas de las llamadas telefónicas (jarvis-llamadas)
+    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, agent_name="jarvis-voz"))
 
 
 if __name__ == "__main__":

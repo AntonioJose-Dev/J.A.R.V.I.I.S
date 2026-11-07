@@ -11,6 +11,7 @@ import logging
 import os
 import re
 from datetime import datetime
+from typing import Awaitable, Callable
 from zoneinfo import ZoneInfo
 
 import aiohttp
@@ -18,6 +19,7 @@ from dotenv import load_dotenv
 from livekit.agents import Agent, RunContext, function_tool, llm, tts
 from livekit.plugins import anthropic, deepgram, elevenlabs, openai
 
+from . import telefono
 from .config import Plan
 from .memory import MemoryStore
 from .prompts import system_prompt
@@ -50,10 +52,53 @@ def nota_de_hora(now: datetime | None = None) -> str:
 
 
 class Jarvis(Agent):
-    def __init__(self, memory: MemoryStore) -> None:
+    def __init__(
+        self,
+        memory: MemoryStore,
+        pedir_confirmacion: Callable[[dict], Awaitable[None]] | None = None,
+    ) -> None:
         self.memory = memory
+        self._pedir_confirmacion = pedir_confirmacion or telefono.pedir_confirmacion_telegram
         recent = [m.text for m in memory.recent(20)]
         super().__init__(instructions=system_prompt(OWNER, recent))
+
+    @function_tool
+    async def guardar_contacto(self, context: RunContext, nombre: str, numero: str) -> str:
+        """Guarda en la agenda el teléfono de una persona para poder llamarla después.
+
+        Args:
+            nombre: cómo la llama el usuario, por ejemplo "mamá" o "Carlos del trabajo".
+            numero: su teléfono, por ejemplo "600 12 34 56" o "+34 600 12 34 56".
+        """
+        try:
+            e164 = telefono.guardar_contacto(self.memory, nombre, numero)
+        except ValueError as e:
+            return f"No lo he guardado: {e}."
+        return f"Guardado: {nombre} → {e164}."
+
+    @function_tool
+    async def llamar(self, context: RunContext, destino: str, mensaje: str) -> str:
+        """Prepara una llamada telefónica real para transmitir un mensaje. El usuario debe confirmarla en Telegram.
+
+        Args:
+            destino: nombre de la agenda (por ejemplo "mamá") o número de teléfono.
+            mensaje: lo que hay que decirle, en una o dos frases, por ejemplo "que llego a las 8".
+        """
+        faltan = telefono.llamadas_configuradas()
+        if faltan:
+            return "Las llamadas todavía no están configuradas (faltan: " + ", ".join(faltan) + ")."
+        try:
+            nombre, numero = telefono.resolver_destino(self.memory, destino)
+        except (LookupError, ValueError) as e:
+            return f"No puedo llamar: {e}. Pide el número y guárdalo con guardar_contacto."
+        if not telefono.numero_permitido(numero):
+            return f"No puedo llamar a {numero}: solo se permiten números de España y la UE."
+        call_id = self.memory.create_call(nombre, numero, mensaje.strip())
+        await self._pedir_confirmacion(self.memory.get_call(call_id))
+        return (
+            f"Llamada a {nombre} ({numero}) preparada, pero NO hecha todavía: {OWNER} tiene en Telegram "
+            "un botón para confirmarla. Díselo así."
+        )
 
     @function_tool
     async def recordar(self, context: RunContext, hecho: str, categoria: str = "general") -> str:
@@ -93,7 +138,7 @@ def crear_cerebro(plan: Plan) -> llm.LLM:
         return anthropic.LLM(model=os.getenv("JARVIS_MODEL", "claude-sonnet-5-5"), caching="ephemeral")
     if plan.cerebro == "groq":
         return openai.LLM(
-            model=os.getenv("JARVIS_GROQ_MODEL", "qwen/qwen3.8-27b"),
+            model=os.getenv("JARVIS_GROQ_MODEL", "openai/gpt-oss-120b"),
             base_url="https://api.groq.com/openai/v1",
             api_key=os.environ["GROQ_API_KEY"].strip(),
         )

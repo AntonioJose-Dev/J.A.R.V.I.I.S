@@ -46,6 +46,19 @@ class MemoryStore:
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS contacts (
+                key TEXT PRIMARY KEY,          -- nombre normalizado (minúsculas, sin tildes)
+                name TEXT NOT NULL,
+                number TEXT NOT NULL           -- formato internacional E.164
+            );
+            CREATE TABLE IF NOT EXISTS calls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                number TEXT NOT NULL,
+                message TEXT NOT NULL,
+                status TEXT NOT NULL,          -- pendiente | marcando | cancelada | caducada | hecha | fallida
+                created_at TEXT NOT NULL
+            );
             """
         )
         self._db.commit()
@@ -102,6 +115,50 @@ class MemoryStore:
             (key, value),
         )
         self._db.commit()
+
+    # --- Agenda -------------------------------------------------------------------
+
+    def save_contact(self, key: str, name: str, number: str) -> None:
+        self._db.execute(
+            "INSERT INTO contacts (key, name, number) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET name = excluded.name, number = excluded.number",
+            (key, name, number),
+        )
+        self._db.commit()
+
+    def contacts(self) -> list[tuple[str, str, str]]:
+        """(key, nombre, número) de todos los contactos."""
+        return self._db.execute("SELECT key, name, number FROM contacts ORDER BY name").fetchall()
+
+    # --- Llamadas pendientes de confirmar -------------------------------------------
+
+    def create_call(self, name: str, number: str, message: str) -> int:
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        cur = self._db.execute(
+            "INSERT INTO calls (name, number, message, status, created_at) VALUES (?, ?, ?, 'pendiente', ?)",
+            (name, number, message, now),
+        )
+        self._db.commit()
+        return cur.lastrowid
+
+    def get_call(self, call_id: int) -> dict | None:
+        row = self._db.execute(
+            "SELECT id, name, number, message, status, created_at FROM calls WHERE id = ?", (call_id,)
+        ).fetchone()
+        if not row:
+            return None
+        return dict(zip(("id", "nombre", "numero", "mensaje", "estado", "creada"), row))
+
+    def set_call_status(self, call_id: int, status: str, only_if: str | None = None) -> bool:
+        """Cambia el estado; con `only_if`, solo si estaba en ese estado (evita dobles pulsaciones)."""
+        if only_if:
+            cur = self._db.execute(
+                "UPDATE calls SET status = ? WHERE id = ? AND status = ?", (status, call_id, only_if)
+            )
+        else:
+            cur = self._db.execute("UPDATE calls SET status = ? WHERE id = ?", (status, call_id))
+        self._db.commit()
+        return cur.rowcount > 0
 
     def close(self) -> None:
         self._db.close()

@@ -28,7 +28,7 @@ python -m jarvis.agent console     # habla con JARVIS desde el terminal
 Si aún no tienes las claves de Anthropic o ElevenLabs, JARVIS arranca igual:
 
 - **Cerebro:** sin `ANTHROPIC_API_KEY` usa un modelo gratuito en la nube:
-  [Groq](https://console.groq.com/keys) (`GROQ_API_KEY`, Qwen 3.8 27B; también vale `openai/gpt-oss-120b`) o, como alternativa,
+  [Groq](https://console.groq.com/keys) (`GROQ_API_KEY`, `openai/gpt-oss-120b`: el que mejor usa las herramientas; también vale `qwen/qwen3.8-27b`) o, como alternativa,
   [Gemini](https://aistudio.google.com/apikey) (`GEMINI_API_KEY`).
 - **Voz:** sin `ELEVEN_API_KEY` habla con la voz española de Deepgram (`aura-2-alvaro-es`).
 
@@ -63,6 +63,47 @@ Solo responde a los IDs de `TELEGRAM_ALLOWED_IDS`: a cualquier otro lo ignora (y
 `/voz` activa o desactiva que conteste siempre también con nota de voz (por defecto, solo cuando le mandas un audio). Se recuerda aunque reinicies el bot.
 El bot funciona mientras esté encendido el ordenador donde lo arrancas.
 
+## Llamadas de teléfono
+
+Pídele a JARVIS (por Telegram o por voz) *"llama a mamá y dile que llego a las 8"*:
+
+1. Busca a "mamá" en su agenda (guárdala antes: *"el teléfono de mi madre es 600 12 34 56"*).
+2. Te manda a Telegram una confirmación con botones **Llamar** / **Cancelar**. Sin pulsar *Llamar* no marca nunca (caduca a los 10 minutos).
+3. Llama de verdad desde tu número. Lo primero que dice es que es **el asistente de inteligencia artificial de Potro** y que llama de tu parte.
+   Da el mensaje, escucha la respuesta, se despide y cuelga. Si salta el contestador, deja un mensaje corto.
+4. Te manda a Telegram el resultado, un resumen y la transcripción.
+
+Por seguridad: solo llama a números de España y la UE (`JARVIS_PREFIJOS_LLAMADA`), una llamada cada vez,
+con un máximo de 3 minutos (`JARVIS_LLAMADA_MAX_SEGUNDOS`), y no promete ni acepta nada en tu nombre.
+
+### Configurarlo (una sola vez)
+
+**Telnyx** (la línea telefónica), en [portal.telnyx.com](https://portal.telnyx.com):
+1. Crea la cuenta y añade saldo (*Billing*).
+2. *Numbers → Search & Buy*: compra un número. Los españoles (+34) piden un justificante de dirección (*Requirements*).
+3. *Voice → Outbound Voice Profiles → Add*: crea un perfil y permite llamar a España/UE.
+4. *Voice → SIP Trunking → Create*: tipo **Credentials**. Apunta el usuario y la contraseña.
+   En la pestaña *Outbound* asígnale el perfil del paso 3, y en *Numbers* asígnale tu número.
+
+**LiveKit Cloud** (conecta la llamada con JARVIS), en [cloud.livekit.io](https://cloud.livekit.io):
+5. Crea un proyecto (plan gratuito). En *Settings → Keys* copia la URL (`wss://...livekit.cloud`), la API key y el secret.
+
+**En `.env`**:
+6. Pon `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` (los de LiveKit Cloud), `TELNYX_SIP_USUARIO`,
+   `TELNYX_SIP_CLAVE` y `JARVIS_CALLER_ID` (tu número de Telnyx, p. ej. `+34910000000`).
+7. Crea la conexión entre LiveKit y Telnyx y copia el ID que te da en `LIVEKIT_SIP_TRUNK_ID`:
+   ```bash
+   python scripts/configurar_llamadas.py
+   ```
+8. Arranca JARVIS entero (Telegram + llamadas):
+   ```bash
+   python -m jarvis
+   ```
+9. Primera prueba, a tu propio móvil:
+   ```bash
+   python scripts/probar_llamada.py +34600000000
+   ```
+
 ## La voz
 
 - **En directo** (`jarvis.agent`): `ELEVEN_MODEL_VIVO` (por defecto `eleven_flash_v2_5`, el más rápido).
@@ -79,6 +120,9 @@ El bot funciona mientras esté encendido el ordenador donde lo arrancas.
 | `jarvis/core.py` | Lo común: personalidad, herramientas, cerebro y voz |
 | `jarvis/agent.py` | Agente de voz en tiempo real (LiveKit) |
 | `jarvis/telegram_bot.py` | Canal de Telegram (texto y notas de voz) |
+| `jarvis/telefono.py` | Agenda, números permitidos y confirmación de llamadas |
+| `jarvis/llamadas.py` | Agente que hace las llamadas de teléfono (LiveKit + Telnyx) |
+| `jarvis/__main__.py` | `python -m jarvis`: arranca Telegram y llamadas a la vez |
 | `jarvis/config.py` | Elige cerebro y voz según las claves (modo prueba / completo) |
 | `jarvis/prompts.py` | Personalidad e instrucciones |
 | `jarvis/memory.py` | Memoria a largo plazo (SQLite ahora, PostgreSQL + pgvector después) |
