@@ -15,9 +15,8 @@ import secrets
 import unicodedata
 from datetime import datetime, timedelta, timezone
 
-import httpx
-
 from .memory import MemoryStore
+from .telegram_api import chat_del_dueno, telegram  # noqa: F401 (las usan llamadas.py y el bot)
 
 log = logging.getLogger("jarvis.telefono")
 
@@ -115,23 +114,6 @@ def llamadas_configuradas() -> list[str]:
 def caducada(llamada: dict, ahora: datetime | None = None) -> bool:
     creada = datetime.fromisoformat(llamada["creada"])
     return (ahora or datetime.now(timezone.utc)) - creada > CADUCIDAD_CONFIRMACION
-
-
-def chat_del_dueno() -> int | None:
-    from .telegram_bot import parse_ids  # import tardío: evita ciclo
-
-    ids = sorted(parse_ids(os.getenv("TELEGRAM_ALLOWED_IDS")))
-    return ids[0] if ids else None
-
-
-def telegram(metodo: str, **datos) -> dict:
-    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-    if not token:
-        raise RuntimeError("Falta TELEGRAM_BOT_TOKEN")
-    r = httpx.post(f"https://api.telegram.org/bot{token}/{metodo}", json=datos, timeout=30)
-    if r.status_code != 200:
-        raise RuntimeError(f"Telegram {metodo}: {r.status_code}")
-    return r.json()
 
 
 def texto_confirmacion(llamada: dict) -> str:

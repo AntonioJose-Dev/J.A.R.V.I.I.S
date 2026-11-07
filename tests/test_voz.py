@@ -13,6 +13,7 @@ PLAN = Plan("groq", "elevenlabs")
 
 
 def _opts(tts):
+    tts = getattr(tts, "_wrapped_tts", tts)  # los v4 van envueltos frase a frase
     return tts._opts.voice_id, tts._opts.model
 
 
@@ -22,6 +23,16 @@ def test_misma_voz_y_modelo_en_todos_los_canales(monkeypatch):
     # Todos los canales construyen la voz con crear_voz(plan): mismo voice_id y mismo modelo
     voces = {_opts(crear_voz(PLAN)) for _ in range(3)}
     assert voces == {(DANIEL, MODELO_ELEVEN)}
+    assert isinstance(getattr(crear_voz(PLAN), "_wrapped_tts", None), elevenlabs.TTS)
+
+
+def test_v4_va_frase_a_frase_sin_conexion_que_caduque(monkeypatch):
+    from livekit.agents import tts
+
+    monkeypatch.setenv("ELEVEN_VOICE_ID", DANIEL)
+    monkeypatch.delenv("ELEVEN_MODEL", raising=False)
+    assert isinstance(crear_voz(PLAN), tts.StreamAdapter)
+    monkeypatch.setenv("ELEVEN_MODEL", "eleven_flash_v2_5")
     assert isinstance(crear_voz(PLAN), elevenlabs.TTS)
 
 

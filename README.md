@@ -106,6 +106,22 @@ con un máximo de 3 minutos (`JARVIS_LLAMADA_MAX_SEGUNDOS`), y no promete ni ace
    python scripts/probar_llamada.py +34600000000
    ```
 
+## Control del PC
+
+JARVIS controla tu PC (Windows) por voz o por Telegram.
+
+**Lo hace directamente:** abrir programas ("abre Brave") y webs ("busca el tiempo en Madrid"), buscar archivos y
+mandártelos por Telegram ("mándame la factura de la luz"), volumen y música ("sube el volumen", "siguiente canción"),
+captura de pantalla a Telegram, estado del PC (batería, memoria, disco) y bloquear la pantalla.
+
+**Te pide confirmación con un botón en Telegram:** cerrar programas, apagar/reiniciar/suspender, mandar archivos a la
+papelera, escribir texto en la ventana activa y ejecutar comandos. Solo ejecuta los comandos de `pc_comandos.json`
+(copia `pc_comandos.example.json` y añade los tuyos); nunca comandos libres.
+
+**Límites:** solo toca archivos de tus carpetas (Escritorio, Documentos, Descargas, Imágenes, Vídeos, Música, OneDrive;
+se cambian con `JARVIS_CARPETAS`), no obedece instrucciones escritas dentro de archivos o webs, y apunta todo lo que hace
+en `jarvis_acciones.log`.
+
 ## La voz
 
 - JARVIS usa **la misma voz y el mismo modelo** en llamadas, voz del PC y notas de Telegram: `ELEVEN_MODEL`,

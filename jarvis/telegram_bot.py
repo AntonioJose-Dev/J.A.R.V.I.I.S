@@ -11,6 +11,7 @@ Variables en .env:
 
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 import os
@@ -26,7 +27,7 @@ from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
-from . import telefono
+from . import pc, telefono
 
 from .config import elegir_plan
 from .core import (
@@ -95,6 +96,22 @@ def decidir_boton(user_id: int | None, permitidos: frozenset[int], data: str | N
     if accion == "llamar" and caducada:
         return "caducada"
     return accion
+
+
+def decidir_boton_accion(user_id: int | None, permitidos: frozenset[int], data: str | None,
+                         accion: dict | None, caducada: bool) -> str:
+    """Botón Sí/No de una acción delicada (`pc:<id>:si|no`): 'ejecutar', 'cancelar', 'caducada',
+    'ya_gestionada' o 'ignorar'."""
+    partes = (data or "").split(":")
+    if user_id is None or user_id not in permitidos or len(partes) != 3 or accion is None:
+        return "ignorar"
+    if partes[2] not in ("si", "no"):
+        return "ignorar"
+    if accion["estado"] != "pendiente":
+        return "ya_gestionada"
+    if partes[2] == "no":
+        return "cancelar"
+    return "caducada" if caducada else "ejecutar"
 
 
 def id_de_boton(data: str | None) -> int | None:
@@ -239,6 +256,43 @@ class JarvisTelegram:
             self.memory.set_call_status(call_id, "fallida")
             await q.message.reply_text(f"No he podido iniciar la llamada: {type(e).__name__}. Revisa la configuración.")
 
+    async def boton_accion(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        q, user = update.callback_query, update.effective_user
+        accion_id = id_de_boton(q.data)
+        accion = self.memory.get_action(accion_id) if accion_id is not None else None
+        decision = decidir_boton_accion(user.id if user else None, self.permitidos, q.data, accion,
+                                        bool(accion) and pc.caducada(accion))
+        await q.answer()
+        if decision == "ignorar":
+            log.warning("Botón de acción ignorado: id=%s", user.id if user else "?")
+            return
+        desc = accion["descripcion"]
+        if decision == "ya_gestionada":
+            await q.edit_message_reply_markup(None)
+            return
+        if decision == "cancelar":
+            self.memory.set_action_status(accion_id, "cancelada", only_if="pendiente")
+            pc.registrar("cancelada", id=accion_id)
+            await q.edit_message_text(f"❌ Cancelado: {desc}.")
+            return
+        if decision == "caducada":
+            self.memory.set_action_status(accion_id, "caducada", only_if="pendiente")
+            await q.edit_message_text(f"⌛ Caducado: {desc}. Pídemelo otra vez.")
+            return
+        if not self.memory.set_action_status(accion_id, "ejecutando", only_if="pendiente"):
+            await q.edit_message_reply_markup(None)
+            return
+        await q.edit_message_text(f"⏳ Haciendo: {desc}…")
+        try:
+            resultado = await asyncio.to_thread(pc.ejecutar_accion, accion["datos"])
+            self.memory.set_action_status(accion_id, "hecha")
+            await q.edit_message_text(f"✅ {desc}\n{resultado}")
+        except Exception as e:
+            log.exception("Falló una acción del PC")
+            self.memory.set_action_status(accion_id, "fallida")
+            pc.registrar("fallida", id=accion_id, error=type(e).__name__)
+            await q.edit_message_text(f"⚠️ No he podido {desc}: {type(e).__name__}.")
+
     async def manejar(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         msg, user = update.effective_message, update.effective_user
         if msg is None:
@@ -316,7 +370,8 @@ def main() -> None:
         sys.exit(f"ERROR: {e}")
     print(f"JARVIS en Telegram: {bot.plan.describir()}. Ctrl+C para parar.")
     app = Application.builder().token(token).post_init(bot.iniciar).post_shutdown(bot.cerrar).build()
-    app.add_handler(CallbackQueryHandler(bot.boton_llamada))
+    app.add_handler(CallbackQueryHandler(bot.boton_llamada, pattern=r"^(llamar|cancelar):"))
+    app.add_handler(CallbackQueryHandler(bot.boton_accion, pattern=r"^pc:"))
     app.add_handler(MessageHandler(filters.ALL, bot.manejar))
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 

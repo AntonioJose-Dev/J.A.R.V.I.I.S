@@ -1,0 +1,18 @@
+{
+  "ver mi ip": {
+    "descripcion": "ver la configuración de red (ipconfig)",
+    "comando": ["ipconfig"]
+  },
+  "limpiar dns": {
+    "descripcion": "limpiar la caché DNS",
+    "comando": ["ipconfig", "/flushdns"]
+  },
+  "programas que se pueden actualizar": {
+    "descripcion": "listar programas con actualizaciones (winget)",
+    "comando": ["winget", "upgrade"]
+  },
+  "cancelar apagado": {
+    "descripcion": "cancelar un apagado o reinicio programado",
+    "comando": ["shutdown", "/a"]
+  }
+}

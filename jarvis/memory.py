@@ -7,6 +7,7 @@ misma que tendrá la versión con PostgreSQL + pgvector y búsqueda semántica.
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -57,6 +58,14 @@ class MemoryStore:
                 number TEXT NOT NULL,
                 message TEXT NOT NULL,
                 status TEXT NOT NULL,          -- pendiente | marcando | cancelada | caducada | hecha | fallida
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS actions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT NOT NULL,            -- p. ej. "pc"
+                payload TEXT NOT NULL,         -- JSON con los datos de la acción
+                description TEXT NOT NULL,     -- lo que se le enseña al dueño para confirmar
+                status TEXT NOT NULL,          -- pendiente | ejecutando | hecha | cancelada | caducada | fallida
                 created_at TEXT NOT NULL
             );
             """
@@ -157,6 +166,34 @@ class MemoryStore:
             )
         else:
             cur = self._db.execute("UPDATE calls SET status = ? WHERE id = ?", (status, call_id))
+        self._db.commit()
+        return cur.rowcount > 0
+
+    # --- Acciones que necesitan confirmación (PC, móvil...) ------------------------------
+
+    def create_action(self, kind: str, payload: dict, description: str) -> int:
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        cur = self._db.execute(
+            "INSERT INTO actions (kind, payload, description, status, created_at) VALUES (?, ?, ?, 'pendiente', ?)",
+            (kind, json.dumps(payload, ensure_ascii=False), description, now),
+        )
+        self._db.commit()
+        return cur.lastrowid
+
+    def get_action(self, action_id: int) -> dict | None:
+        row = self._db.execute(
+            "SELECT id, kind, payload, description, status, created_at FROM actions WHERE id = ?", (action_id,)
+        ).fetchone()
+        if not row:
+            return None
+        return {"id": row[0], "tipo": row[1], "datos": json.loads(row[2]), "descripcion": row[3],
+                "estado": row[4], "creada": row[5]}
+
+    def set_action_status(self, action_id: int, status: str, only_if: str | None = None) -> bool:
+        sql, args = "UPDATE actions SET status = ? WHERE id = ?", [status, action_id]
+        if only_if:
+            sql, args = sql + " AND status = ?", args + [only_if]
+        cur = self._db.execute(sql, args)
         self._db.commit()
         return cur.rowcount > 0
 

@@ -20,6 +20,7 @@ from livekit.agents import Agent, RunContext, function_tool, llm, tts
 from livekit.plugins import anthropic, deepgram, elevenlabs, openai
 
 from . import telefono
+from .pc import ControlPC
 from .config import Plan
 from .memory import MemoryStore
 from .prompts import system_prompt
@@ -51,14 +52,16 @@ def nota_de_hora(now: datetime | None = None) -> str:
     )
 
 
-class Jarvis(Agent):
+class Jarvis(ControlPC, Agent):
     def __init__(
         self,
         memory: MemoryStore,
         pedir_confirmacion: Callable[[dict], Awaitable[None]] | None = None,
+        pedir_confirmacion_pc: Callable[[dict], Awaitable[None]] | None = None,
     ) -> None:
         self.memory = memory
         self._pedir_confirmacion = pedir_confirmacion or telefono.pedir_confirmacion_telegram
+        self._pedir_confirmacion_pc = pedir_confirmacion_pc
         recent = [m.text for m in memory.recent(20)]
         super().__init__(instructions=system_prompt(OWNER, recent))
 
@@ -204,7 +207,12 @@ def crear_voz(plan: Plan, http_session: aiohttp.ClientSession | None = None) -> 
         modelo = modelo_eleven()
         if not modelo.startswith("eleven_v4"):  # los v4 no admiten estos ajustes (usan otra API)
             extra["voice_settings"] = elevenlabs.VoiceSettings(**ajustes_eleven())
-        return elevenlabs.TTS(model=modelo, language="es", voice_id=voz_eleven(), **extra)
+        voz = elevenlabs.TTS(model=modelo, language="es", voice_id=voz_eleven(), **extra)
+        if modelo.startswith("eleven_v4"):
+            # Los v4 en tiempo real cortan la conexión tras 20 s sin texto (lo normal mientras
+            # el usuario habla). Frase a frase por HTTP no hay conexión que se pueda caducar.
+            return tts.StreamAdapter(tts=voz)
+        return voz
     return deepgram.TTS(model=os.getenv("JARVIS_DEEPGRAM_VOICE", "aura-2-alvaro-es"), **extra)
 
 
