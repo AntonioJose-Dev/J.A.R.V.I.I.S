@@ -27,6 +27,23 @@ def test_sin_token_o_token_malo_no_hace_nada(monkeypatch):
     assert llamado == []
 
 
+@pytest.mark.parametrize("ip, permitido", [
+    ("100.78.85.68", True),          # el PC por Tailscale
+    ("127.0.0.1", True),             # el propio móvil
+    ("::ffff:100.78.85.68", True),
+    ("192.168.1.50", False),         # alguien en la misma Wi-Fi (p. ej. una cafetería)
+    ("8.8.8.8", False),
+    ("", False), (None, False), ("basura", False),
+])
+def test_solo_tailscale(ip, permitido):
+    assert agente.red_permitida(ip) is permitido
+
+
+def test_desde_otra_red_ni_con_el_token_correcto():
+    assert agente.atender(b'{"accion":"ping"}', TOKEN, TOKEN, "192.168.1.50")[0] == 403
+    assert agente.atender(b'{"accion":"ping"}', TOKEN, TOKEN, "100.78.85.68")[0] == 200
+
+
 def test_ping_y_accion_valida(monkeypatch):
     monkeypatch.setitem(agente.ACCIONES, "estado", lambda v: {"bateria": 80, "cargando": False})
     assert agente.atender(b'{"accion":"ping"}', TOKEN, TOKEN) == (200, {"ok": True, "version": agente.VERSION})

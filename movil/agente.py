@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PUERTO = int(os.environ.get("JARVIS_MOVIL_PUERTO", "8765"))
 RUTA_TOKEN = os.path.expanduser("~/.jarvis_token")
-VERSION = "7"
+VERSION = "8"
 
 
 def ejecutar(cmd: list[str], timeout: float = 30) -> str:
@@ -259,8 +259,21 @@ def token_valido(recibido: str | None, esperado: str) -> bool:
     return bool(esperado) and bool(recibido) and hmac.compare_digest(recibido.encode(), esperado.encode())
 
 
-def atender(cuerpo: bytes, token_recibido: str | None, token: str) -> tuple[int, dict]:
+def red_permitida(ip: str | None) -> bool:
+    """Solo la red privada de Tailscale (100.64.0.0/10) y el propio móvil: nada de Wi-Fi públicas."""
+    import ipaddress
+
+    try:
+        direccion = ipaddress.ip_address((ip or "").removeprefix("::ffff:"))
+    except ValueError:
+        return False
+    return direccion.is_loopback or direccion in ipaddress.ip_network("100.64.0.0/10")
+
+
+def atender(cuerpo: bytes, token_recibido: str | None, token: str, ip: str | None = "127.0.0.1") -> tuple[int, dict]:
     """Lógica de una petición (sin red): devuelve (código HTTP, respuesta)."""
+    if not red_permitida(ip):
+        return 403, {"error": "solo por Tailscale"}
     if not token_valido(token_recibido, token):
         return 401, {"error": "token incorrecto"}
     try:
@@ -283,7 +296,8 @@ class Manejador(BaseHTTPRequestHandler):
 
     def do_POST(self):  # noqa: N802
         largo = min(int(self.headers.get("Content-Length", "0")), 100_000)
-        codigo, respuesta = atender(self.rfile.read(largo), self.headers.get("X-Jarvis-Token"), self.token)
+        codigo, respuesta = atender(self.rfile.read(largo), self.headers.get("X-Jarvis-Token"), self.token,
+                                    self.client_address[0])
         datos = json.dumps(respuesta, ensure_ascii=False).encode()
         self.send_response(codigo)
         self.send_header("Content-Type", "application/json; charset=utf-8")

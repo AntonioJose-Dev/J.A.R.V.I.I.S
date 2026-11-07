@@ -24,7 +24,7 @@ from .core import Jarvis, log
 
 NOMBRE_AGENTE = "jarvis-voz"
 URL_PAGINA = "https://antoniojose-dev.github.io/J.A.R.V.I.I.S/"
-DURACION_PERMISO = timedelta(hours=2)
+DURACION_PERMISO = timedelta(minutes=10)  # solo para entrar; la conversación sigue aunque caduque
 
 _SI = re.compile(r"\b(si|vale|dale|hazlo|adelante|confirmo|confirmado|envialo|mandalo|llama|llamale|claro|ok|okay"
                  r"|de acuerdo|por supuesto|venga|correcto|eso es|exacto)\b")
