@@ -75,13 +75,9 @@ def test_whatsapp_firma_la_orden_para_la_app(tmp_path, monkeypatch):
 
     def ejecutar(cmd, timeout=30):
         comandos.append(cmd)
-        if cmd[:4] == ["am", "broadcast", "-a", "com.jarvis.companion.ESTADO"]:
-            marca = dict(zip(comandos[0][comandos[0].index("--es") + 1::3],
-                             comandos[0][comandos[0].index("--es") + 2::3]))["marca"]
-            return f'Broadcast completed: result=1, data="enviado {marca}"'
-        return "Broadcast completed: result=1" if cmd[:2] == ["am", "broadcast"] else ""
+        return "Broadcast sent without waiting for result" if cmd[:2] == ["am", "broadcast"] else ""
     monkeypatch.setattr(agente, "ejecutar", ejecutar)
-    monkeypatch.setattr(agente.time, "sleep", lambda s: None)
+    monkeypatch.setattr(agente, "_esperar_aviso", lambda eventos, marca, s: "enviado")
     r = agente.whatsapp(json.dumps({"numero": "+34600123456", "texto": "Llego a las 8"}))
     assert r["automatico"] is True and r["enviado"] is True
     orden = comandos[0]
@@ -91,6 +87,22 @@ def test_whatsapp_firma_la_orden_para_la_app(tmp_path, monkeypatch):
     esperada = _hmac.new(secreto.encode(), f"{extras['marca']}\nLlego a las 8".encode(), hashlib.sha256).hexdigest()
     assert extras["firma"] == esperada
     assert comandos[1][0] == "termux-open-url" and "wa.me/34600123456" in comandos[1][1]
+
+
+def test_aviso_de_la_app_solo_desde_el_movil_y_firmado():
+    import hashlib
+    import hmac as _hmac
+
+    secreto = "x" * 64
+    firma = _hmac.new(secreto.encode(), b"enviado\n123", hashlib.sha256).hexdigest()
+    cuerpo = json.dumps({"evento": "enviado", "marca": "123", "firma": firma}).encode()
+    assert agente.recibir_aviso(cuerpo, "100.78.85.68", secreto) == 403   # ni siquiera por Tailscale
+    assert agente.recibir_aviso(cuerpo, "127.0.0.1", "otro" * 16) == 401  # firma de otro secreto
+    assert agente.recibir_aviso(b"basura", "127.0.0.1", secreto) == 400
+    assert agente.recibir_aviso(cuerpo, "127.0.0.1", None) == 401         # sin app conectada
+    assert agente.recibir_aviso(cuerpo, "127.0.0.1", secreto) == 200
+    assert agente._esperar_aviso(("enviado",), "123", 0.5) == "enviado"
+    assert agente._esperar_aviso(("enviado",), "999", 0.4) is None
 
 
 def test_whatsapp_sin_app_solo_lo_deja_escrito(tmp_path, monkeypatch):
@@ -104,9 +116,8 @@ def test_whatsapp_no_se_da_por_enviado_si_la_app_no_lo_confirma(tmp_path, monkey
     ruta = tmp_path / "companion"
     ruta.write_text("s" * 64)
     monkeypatch.setattr(agente, "RUTA_COMPANION", str(ruta))
-    monkeypatch.setattr(agente, "ESPERA_ENVIO", 1)
-    monkeypatch.setattr(agente.time, "sleep", lambda s: None)
-    monkeypatch.setattr(agente, "ejecutar", lambda cmd, timeout=30: "Broadcast completed: result=1, data=\"\"")
+    monkeypatch.setattr(agente, "_esperar_aviso", lambda eventos, marca, s: None)
+    monkeypatch.setattr(agente, "ejecutar", lambda cmd, timeout=30: "")
     r = agente.whatsapp(json.dumps({"numero": "+34600123456", "texto": "hola"}))
     assert r["automatico"] is True and r["enviado"] is False
 

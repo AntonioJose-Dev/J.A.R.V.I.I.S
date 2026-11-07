@@ -30,9 +30,17 @@ public class Inicio extends Activity {
         Button activar = new Button(this);
         activar.setText("Activar permiso de accesibilidad");
         activar.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
+        Button reconectar = new Button(this);
+        reconectar.setText("Reconectar con JARVIS");
+        reconectar.setOnClickListener(v -> {
+            Orden.olvidar(this);
+            Orden.registrar(this, "esperando a que JARVIS se conecte");
+            onResume();
+        });
         l.addView(titulo);
         l.addView(estado);
         l.addView(activar);
+        l.addView(reconectar);
         setContentView(l);
     }
 

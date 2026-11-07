@@ -12,6 +12,7 @@ public class Receptor extends BroadcastReceiver {
         if ("com.jarvis.companion.CONFIGURAR".equals(accion)) {
             boolean ok = Orden.configurar(c, i.getStringExtra("secreto"));
             Orden.registrar(c, ok ? "configurada" : "configuracion rechazada");
+            if (ok) Aviso.enviar(c, "configurada", 0);
             setResultCode(ok ? 1 : 0);
         } else if ("com.jarvis.companion.ESTADO".equals(accion)) {
             // Solo devuelve el último evento (p. ej. "enviado 1731000000000"); no cambia nada ni expone textos

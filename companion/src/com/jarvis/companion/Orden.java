@@ -42,6 +42,12 @@ final class Orden {
         return true;
     }
 
+    /** Botón "Reconectar con JARVIS": olvida el secreto para poder emparejar de nuevo. */
+    static synchronized void olvidar(Context c) {
+        prefs(c).edit().remove("secreto").remove("ultima_marca").apply();
+        texto = null;
+    }
+
     static synchronized boolean recibir(Context c, String nuevoTexto, long marca, String firma) {
         String secreto = prefs(c).getString("secreto", null);
         long ahora = System.currentTimeMillis();

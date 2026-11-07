@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PUERTO = int(os.environ.get("JARVIS_MOVIL_PUERTO", "8765"))
 RUTA_TOKEN = os.path.expanduser("~/.jarvis_token")
-VERSION = "10"
+VERSION = "11"
 
 
 def ejecutar(cmd: list[str], timeout: float = 30) -> str:
@@ -193,19 +193,64 @@ def _difundir(accion: str, extras: dict[str, str]) -> bool:
     return _difundir_crudo(accion, extras)[0] == 1
 
 
+# Avisos firmados que manda la app JARVIS desde este mismo móvil: {(evento, marca)}
+_AVISOS: set[tuple[str, str]] = set()
+_AVISOS_LOCK = __import__("threading").Lock()
+
+
+def recibir_aviso(cuerpo: bytes, ip: str | None, secreto: str | None) -> int:
+    """POST /companion desde la app (solo desde el propio móvil y con la firma del secreto compartido)."""
+    import ipaddress
+
+    try:
+        if not ipaddress.ip_address((ip or "").removeprefix("::ffff:")).is_loopback:
+            return 403
+        d = json.loads(cuerpo or b"{}")
+        evento, marca, firma = str(d["evento"]), str(d["marca"]), str(d["firma"])
+    except (ValueError, KeyError):
+        return 400
+    esperada = hmac.new((secreto or "").encode(), f"{evento}\n{marca}".encode(), "sha256").hexdigest()
+    if not secreto or not hmac.compare_digest(esperada, firma):
+        return 401
+    with _AVISOS_LOCK:
+        _AVISOS.add((evento, marca))
+    return 200
+
+
+def _esperar_aviso(eventos: tuple[str, ...], marca: str, segundos: float) -> str | None:
+    fin = time.time() + segundos
+    while time.time() < fin:
+        with _AVISOS_LOCK:
+            for e in eventos:
+                if (e, marca) in _AVISOS:
+                    return e
+        time.sleep(0.3)
+    return None
+
+
+def _secreto_companion() -> str | None:
+    for ruta in (RUTA_COMPANION, RUTA_COMPANION + ".nuevo"):
+        if os.path.exists(ruta):
+            return open(ruta, encoding="utf-8").read().strip()
+    return None
+
+
 def companion_configurar(_v: str) -> dict:
-    """Conecta el agente con la app JARVIS (una sola vez): comparten un secreto para firmar las órdenes."""
+    """Conecta el agente con la app JARVIS (una sola vez): comparten un secreto para firmar las órdenes.
+    La app confirma con un aviso firmado (el `am` de Termux no devuelve la respuesta de la app)."""
     import secrets as _secrets
 
     secreto = _secrets.token_hex(32)
-    codigo, _datos, salida = _difundir_crudo("CONFIGURAR", {"secreto": secreto})
-    if codigo != 1:
-        motivo = ("no contesta: ábrela una vez (Android no avisa a apps que nunca se han abierto)"
-                  if codigo in (None, 0) and "result=0" not in salida else "ya estaba conectada")
-        raise RuntimeError(f"la app JARVIS {motivo} [{salida.strip()[-120:]}]")
-    with open(RUTA_COMPANION, "w", encoding="utf-8") as f:
+    nuevo = RUTA_COMPANION + ".nuevo"
+    with open(nuevo, "w", encoding="utf-8") as f:
         f.write(secreto)
-    os.chmod(RUTA_COMPANION, 0o600)
+    os.chmod(nuevo, 0o600)
+    _difundir_crudo("CONFIGURAR", {"secreto": secreto})
+    if _esperar_aviso(("configurada",), "0", 10) is None:
+        os.remove(nuevo)
+        raise RuntimeError("la app JARVIS no contesta: ábrela en el móvil y pulsa 'Reconectar con JARVIS', "
+                           "y vuelve a intentarlo")
+    os.replace(nuevo, RUTA_COMPANION)
     return {"ok": True}
 
 
@@ -219,18 +264,14 @@ def whatsapp(v: str) -> dict:
         secreto = open(RUTA_COMPANION, encoding="utf-8").read().strip()
         marca = str(int(time.time() * 1000))
         firma = hmac.new(secreto.encode(), f"{marca}\n{d['texto']}".encode(), "sha256").hexdigest()
-        automatico = _difundir("ENVIAR", {"texto": d["texto"], "marca": marca, "firma": firma})
+        _difundir_crudo("ENVIAR", {"texto": d["texto"], "marca": marca, "firma": firma})
+        automatico = True
     ejecutar(["termux-open-url", f"https://wa.me/{d['numero'].lstrip('+')}?text={quote(d['texto'])}"])
     if not automatico:
         return {"ok": True, "automatico": False, "enviado": False}
-    # Comprobar de verdad que la app pulsó "Enviar" para ESTA orden (nada de dar por hecho lo que no se ve)
-    ultimo = ""
-    for _ in range(int(ESPERA_ENVIO * 2)):
-        time.sleep(0.5)
-        _codigo, ultimo, _ = _difundir_crudo("ESTADO")
-        if ultimo in (f"enviado {marca}", f"fallo_pulsar {marca}"):
-            break
-    return {"ok": True, "automatico": True, "enviado": ultimo == f"enviado {marca}", "estado_app": ultimo}
+    # Comprobar de verdad que la app pulsó "Enviar" para ESTA orden: la app lo avisa firmado
+    resultado = _esperar_aviso(("enviado", "fallo_pulsar"), marca, ESPERA_ENVIO)
+    return {"ok": True, "automatico": True, "enviado": resultado == "enviado", "estado_app": resultado or "sin aviso"}
 
 
 ESPERA_ENVIO = 20  # segundos que se espera a que WhatsApp se abra y la app pulse "Enviar"
@@ -353,6 +394,12 @@ class Manejador(BaseHTTPRequestHandler):
 
     def do_POST(self):  # noqa: N802
         largo = min(int(self.headers.get("Content-Length", "0")), 100_000)
+        if self.path == "/companion":  # aviso de la app JARVIS de este mismo móvil
+            codigo = recibir_aviso(self.rfile.read(largo), self.client_address[0], _secreto_companion())
+            self.send_response(codigo)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         codigo, respuesta = atender(self.rfile.read(largo), self.headers.get("X-Jarvis-Token"), self.token,
                                     self.client_address[0])
         datos = json.dumps(respuesta, ensure_ascii=False).encode()

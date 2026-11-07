@@ -32,6 +32,7 @@ public class Accesibilidad extends AccessibilityService {
         boolean ok = boton.performAction(AccessibilityNodeInfo.ACTION_CLICK);
         // "enviado <marca>": el agente de JARVIS lo consulta para comprobar que esta orden concreta se envió
         Orden.registrar(this, (ok ? "enviado " : "fallo_pulsar ") + marca);
+        Aviso.enviar(this, ok ? "enviado" : "fallo_pulsar", marca);
     }
 
     private static AccessibilityNodeInfo buscar(AccessibilityNodeInfo raiz, String[] ids) {
