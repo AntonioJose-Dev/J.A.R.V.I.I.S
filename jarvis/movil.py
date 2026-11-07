@@ -248,9 +248,14 @@ def ejecutar_accion(datos: dict) -> str:
         if dispositivos_seguro():
             return _mensaje_por_adb(datos)
         r = agente("whatsapp", json.dumps({"numero": datos["numero"], "texto": datos["texto"]}))
+        if r.get("enviado"):
+            return "WhatsApp enviado (comprobado: la app JARVIS pulsó Enviar)."
+        # Nunca dar por enviado lo que no se ha comprobado: se lanza un error y el botón lo dice claro
         if r.get("automatico"):
-            return "WhatsApp enviado (lo ha pulsado la app JARVIS de tu móvil)."
-        return "Te he dejado el WhatsApp escrito en el móvil: solo tienes que pulsar enviar."
+            raise RuntimeError("la app JARVIS no llegó a pulsar Enviar. ¿Tiene activado el permiso de "
+                               "accesibilidad? Mira en WhatsApp si el mensaje se quedó escrito.")
+        raise RuntimeError("la app JARVIS aún no está conectada, así que NO se ha enviado. Ábrela una vez "
+                           "en el móvil; puede que te haya dejado el mensaje escrito en WhatsApp.")
     if agente_configurado():
         agente("sms", json.dumps({"numero": datos["numero"], "texto": datos["texto"]}))
         return "SMS enviado."
@@ -270,7 +275,7 @@ def _mensaje_por_adb(datos: dict) -> str:
     texto = datos["texto"]
     if datos["app"] == "whatsapp":
         url = f"https://api.whatsapp.com/send?phone={numero_whatsapp(datos['numero'])}&text={quote(texto)}"
-        shell("am", "start", "-a", "android.intent.action.VIEW", "-d", q(url), "-p", "com.whatsapp")
+        shell("am", "start", "-a", "android.intent.action.VIEW", "-d", q(url))
     else:
         shell("am", "start", "-a", "android.intent.action.SENDTO", "-d", f"smsto:{datos['numero']}",
               "--es", "sms_body", q(texto))

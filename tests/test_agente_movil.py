@@ -75,10 +75,15 @@ def test_whatsapp_firma_la_orden_para_la_app(tmp_path, monkeypatch):
 
     def ejecutar(cmd, timeout=30):
         comandos.append(cmd)
+        if cmd[:4] == ["am", "broadcast", "-a", "com.jarvis.companion.ESTADO"]:
+            marca = dict(zip(comandos[0][comandos[0].index("--es") + 1::3],
+                             comandos[0][comandos[0].index("--es") + 2::3]))["marca"]
+            return f'Broadcast completed: result=1, data="enviado {marca}"'
         return "Broadcast completed: result=1" if cmd[:2] == ["am", "broadcast"] else ""
     monkeypatch.setattr(agente, "ejecutar", ejecutar)
+    monkeypatch.setattr(agente.time, "sleep", lambda s: None)
     r = agente.whatsapp(json.dumps({"numero": "+34600123456", "texto": "Llego a las 8"}))
-    assert r == {"ok": True, "automatico": True}
+    assert r["automatico"] is True and r["enviado"] is True
     orden = comandos[0]
     extras = dict(zip(orden[orden.index("--es") + 1::3], orden[orden.index("--es") + 2::3]))
     assert extras["texto"] == "Llego a las 8"
@@ -91,7 +96,34 @@ def test_whatsapp_firma_la_orden_para_la_app(tmp_path, monkeypatch):
 def test_whatsapp_sin_app_solo_lo_deja_escrito(tmp_path, monkeypatch):
     monkeypatch.setattr(agente, "RUTA_COMPANION", str(tmp_path / "no_existe"))
     monkeypatch.setattr(agente, "ejecutar", lambda cmd, timeout=30: "")
-    assert agente.whatsapp(json.dumps({"numero": "+34600123456", "texto": "hola"})) == {"ok": True, "automatico": False}
+    assert agente.whatsapp(json.dumps({"numero": "+34600123456", "texto": "hola"})) == {
+        "ok": True, "automatico": False, "enviado": False}
+
+
+def test_whatsapp_no_se_da_por_enviado_si_la_app_no_lo_confirma(tmp_path, monkeypatch):
+    ruta = tmp_path / "companion"
+    ruta.write_text("s" * 64)
+    monkeypatch.setattr(agente, "RUTA_COMPANION", str(ruta))
+    monkeypatch.setattr(agente, "ESPERA_ENVIO", 1)
+    monkeypatch.setattr(agente.time, "sleep", lambda s: None)
+    monkeypatch.setattr(agente, "ejecutar", lambda cmd, timeout=30: "Broadcast completed: result=1, data=\"\"")
+    r = agente.whatsapp(json.dumps({"numero": "+34600123456", "texto": "hola"}))
+    assert r["automatico"] is True and r["enviado"] is False
+
+
+def test_el_pc_nunca_dice_enviado_sin_comprobarlo(monkeypatch):
+    from jarvis import movil as pc_movil
+
+    datos = {"accion": "mensaje", "app": "whatsapp", "numero": "+34600123456", "texto": "hola"}
+    monkeypatch.setattr(pc_movil, "dispositivos_seguro", lambda: [])
+    monkeypatch.setattr(pc_movil, "agente", lambda *a, **k: {"ok": True, "automatico": True, "enviado": False})
+    with pytest.raises(RuntimeError, match="no llegó a pulsar"):
+        pc_movil.ejecutar_accion(datos)
+    monkeypatch.setattr(pc_movil, "agente", lambda *a, **k: {"ok": True, "automatico": False, "enviado": False})
+    with pytest.raises(RuntimeError, match="NO se ha enviado"):
+        pc_movil.ejecutar_accion(datos)
+    monkeypatch.setattr(pc_movil, "agente", lambda *a, **k: {"ok": True, "automatico": True, "enviado": True})
+    assert "comprobado" in pc_movil.ejecutar_accion(datos)
 
 
 def test_sms_usa_termux_sms_send_con_argumentos_separados(monkeypatch):

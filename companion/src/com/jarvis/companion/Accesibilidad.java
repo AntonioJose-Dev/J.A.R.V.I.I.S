@@ -27,9 +27,11 @@ public class Accesibilidad extends AccessibilityService {
         if (!normalizar(campo.getText().toString()).equals(normalizar(esperado))) return;
         AccessibilityNodeInfo boton = buscar(raiz, ENVIAR);
         if (boton == null) return;
+        long marca = Orden.marca();
         if (Orden.pendiente(true) == null) return;  // consumir la orden: un solo envío
         boolean ok = boton.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-        Orden.registrar(this, ok ? "enviado" : "no se pudo pulsar enviar");
+        // "enviado <marca>": el agente de JARVIS lo consulta para comprobar que esta orden concreta se envió
+        Orden.registrar(this, (ok ? "enviado " : "fallo_pulsar ") + marca);
     }
 
     private static AccessibilityNodeInfo buscar(AccessibilityNodeInfo raiz, String[] ids) {

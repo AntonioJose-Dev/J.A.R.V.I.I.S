@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PUERTO = int(os.environ.get("JARVIS_MOVIL_PUERTO", "8765"))
 RUTA_TOKEN = os.path.expanduser("~/.jarvis_token")
-VERSION = "9"
+VERSION = "10"
 
 
 def ejecutar(cmd: list[str], timeout: float = 30) -> str:
@@ -175,12 +175,22 @@ RUTA_COMPANION = os.path.expanduser("~/.jarvis_companion")
 COMPONENTE = "com.jarvis.companion/.Receptor"
 
 
+def _difundir_crudo(accion: str, extras: dict[str, str] | None = None) -> tuple[int | None, str, str]:
+    """`am broadcast` a la app JARVIS → (código de resultado, datos devueltos, salida completa)."""
+    import re as _re
+
+    cmd = ["am", "broadcast", "-a", f"com.jarvis.companion.{accion}", "-n", COMPONENTE]
+    for k, v in (extras or {}).items():
+        cmd += ["--es", k, v]
+    salida = ejecutar(cmd)
+    m = _re.search(r"result=(-?\d+)", salida)
+    d = _re.search(r'data="([^"]*)"', salida)
+    return (int(m.group(1)) if m else None), (d.group(1) if d else ""), salida
+
+
 def _difundir(accion: str, extras: dict[str, str]) -> bool:
     """`am broadcast` a la app JARVIS; devuelve True si la app aceptó (result=1)."""
-    cmd = ["am", "broadcast", "-a", f"com.jarvis.companion.{accion}", "-n", COMPONENTE]
-    for k, v in extras.items():
-        cmd += ["--es", k, v]
-    return "result=1" in ejecutar(cmd)
+    return _difundir_crudo(accion, extras)[0] == 1
 
 
 def companion_configurar(_v: str) -> dict:
@@ -188,8 +198,11 @@ def companion_configurar(_v: str) -> dict:
     import secrets as _secrets
 
     secreto = _secrets.token_hex(32)
-    if not _difundir("CONFIGURAR", {"secreto": secreto}):
-        raise RuntimeError("la app JARVIS no está instalada o ya estaba conectada (borra sus datos para repetir)")
+    codigo, _datos, salida = _difundir_crudo("CONFIGURAR", {"secreto": secreto})
+    if codigo != 1:
+        motivo = ("no contesta: ábrela una vez (Android no avisa a apps que nunca se han abierto)"
+                  if codigo in (None, 0) and "result=0" not in salida else "ya estaba conectada")
+        raise RuntimeError(f"la app JARVIS {motivo} [{salida.strip()[-120:]}]")
     with open(RUTA_COMPANION, "w", encoding="utf-8") as f:
         f.write(secreto)
     os.chmod(RUTA_COMPANION, 0o600)
@@ -201,14 +214,26 @@ def whatsapp(v: str) -> dict:
     from urllib.parse import quote
 
     d = json.loads(v)
-    automatico = False
+    automatico, marca = False, ""
     if os.path.exists(RUTA_COMPANION):
         secreto = open(RUTA_COMPANION, encoding="utf-8").read().strip()
         marca = str(int(time.time() * 1000))
         firma = hmac.new(secreto.encode(), f"{marca}\n{d['texto']}".encode(), "sha256").hexdigest()
         automatico = _difundir("ENVIAR", {"texto": d["texto"], "marca": marca, "firma": firma})
     ejecutar(["termux-open-url", f"https://wa.me/{d['numero'].lstrip('+')}?text={quote(d['texto'])}"])
-    return {"ok": True, "automatico": automatico}
+    if not automatico:
+        return {"ok": True, "automatico": False, "enviado": False}
+    # Comprobar de verdad que la app pulsó "Enviar" para ESTA orden (nada de dar por hecho lo que no se ve)
+    ultimo = ""
+    for _ in range(int(ESPERA_ENVIO * 2)):
+        time.sleep(0.5)
+        _codigo, ultimo, _ = _difundir_crudo("ESTADO")
+        if ultimo in (f"enviado {marca}", f"fallo_pulsar {marca}"):
+            break
+    return {"ok": True, "automatico": True, "enviado": ultimo == f"enviado {marca}", "estado_app": ultimo}
+
+
+ESPERA_ENVIO = 20  # segundos que se espera a que WhatsApp se abra y la app pulse "Enviar"
 
 
 def foto(v: str) -> dict:

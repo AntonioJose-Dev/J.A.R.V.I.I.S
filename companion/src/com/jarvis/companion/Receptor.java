@@ -13,6 +13,11 @@ public class Receptor extends BroadcastReceiver {
             boolean ok = Orden.configurar(c, i.getStringExtra("secreto"));
             Orden.registrar(c, ok ? "configurada" : "configuracion rechazada");
             setResultCode(ok ? 1 : 0);
+        } else if ("com.jarvis.companion.ESTADO".equals(accion)) {
+            // Solo devuelve el último evento (p. ej. "enviado 1731000000000"); no cambia nada ni expone textos
+            setResultCode(Orden.configurada(c) ? 1 : 2);
+            String ultimo = Orden.prefs(c).getString("ultimo", "");
+            setResultData(ultimo.contains(" ") ? ultimo.substring(ultimo.indexOf(' ') + 1) : ultimo);
         } else if ("com.jarvis.companion.ENVIAR".equals(accion)) {
             long marca;
             try {

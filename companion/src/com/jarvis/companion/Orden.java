@@ -23,6 +23,7 @@ final class Orden {
 
     private static String texto;
     private static long caduca;
+    private static long marcaPendiente;
 
     private Orden() {}
 
@@ -54,7 +55,13 @@ final class Orden {
         prefs(c).edit().putLong("ultima_marca", marca).apply();
         texto = nuevoTexto;
         caduca = ahora + VALIDEZ_MS;
+        marcaPendiente = marca;
         return true;
+    }
+
+    /** La marca de la orden pendiente (para dejar constancia de qué orden se envió). */
+    static synchronized long marca() {
+        return marcaPendiente;
     }
 
     /** Devuelve el texto pendiente (si sigue vigente) y lo consume si `consumir`. */
