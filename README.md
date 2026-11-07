@@ -63,6 +63,15 @@ Solo responde a los IDs de `TELEGRAM_ALLOWED_IDS`: a cualquier otro lo ignora (y
 `/voz` activa o desactiva que conteste siempre también con nota de voz (por defecto, solo cuando le mandas un audio). Se recuerda aunque reinicies el bot.
 El bot funciona mientras esté encendido el ordenador donde lo arrancas.
 
+## La voz
+
+- **En directo** (`jarvis.agent`): `ELEVEN_MODEL_VIVO` (por defecto `eleven_flash_v2_5`, el más rápido).
+- **Notas de voz de Telegram**: `ELEVEN_MODEL_NOTAS` (por defecto `eleven_v4`, el más realista).
+- La voz se elige con `ELEVEN_VOICE_ID`; `ELEVEN_STABILITY`, `ELEVEN_SIMILARITY` y `ELEVEN_STYLE` ajustan la naturalidad.
+- Antes de hablar se limpia el texto (sin markdown, emojis ni enlaces; horas dichas como "13 y 45").
+- Con el plan gratuito de ElevenLabs solo se pueden usar por API las voces incluidas en la cuenta.
+  Las voces de la biblioteca (castellano nativo) y crear voces nuevas por API requieren plan de pago.
+
 ## Estructura
 
 | Archivo | Para qué |

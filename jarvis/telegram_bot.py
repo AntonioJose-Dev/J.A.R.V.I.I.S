@@ -27,7 +27,17 @@ from telegram.constants import ChatAction
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from .config import elegir_plan
-from .core import KEYTERMS, Jarvis, crear_cerebro, crear_voz, responder
+from .core import (
+    KEYTERMS,
+    MODELO_ELEVEN_NOTAS,
+    Jarvis,
+    ajustes_eleven,
+    crear_cerebro,
+    crear_voz,
+    limpiar_para_voz,
+    responder,
+    voz_eleven,
+)
 from .memory import MemoryStore
 
 log = logging.getLogger("jarvis.telegram")
@@ -105,6 +115,39 @@ def pcm_a_ogg_opus(pcm: bytes, sample_rate: int, canales: int) -> bytes:
     return buf.getvalue()
 
 
+def audio_a_ogg_opus(audio: bytes) -> bytes:
+    """Convierte cualquier audio (MP3, WAV...) a nota de voz OGG/Opus."""
+    with av.open(io.BytesIO(audio)) as f:
+        resampler = av.AudioResampler(format="s16", layout="mono", rate=48000)
+        pcm = b"".join(
+            bytes(fr.planes[0])[: fr.samples * 2]
+            for frame in f.decode(f.streams.audio[0])
+            for fr in resampler.resample(frame)
+        )
+    return pcm_a_ogg_opus(pcm, 48000, 1)
+
+
+async def sintetizar_eleven_notas(texto: str) -> bytes:
+    """Nota de voz con el modelo más realista de ElevenLabs (no hace falta streaming)."""
+    modelo = os.getenv("ELEVEN_MODEL_NOTAS", "").strip() or MODELO_ELEVEN_NOTAS
+    async with httpx.AsyncClient(timeout=60) as client:
+        r = await client.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{voz_eleven()}",
+            params={"output_format": "mp3_44100_128"},
+            headers={"xi-api-key": os.getenv("ELEVEN_API_KEY", "").strip()},
+            json={
+                "text": texto,
+                "model_id": modelo,
+                "language_code": "es",
+                "apply_text_normalization": "on",
+                "voice_settings": ajustes_eleven(),
+            },
+        )
+    if r.status_code != 200:
+        raise RuntimeError(f"ElevenLabs {r.status_code}: {r.text[:200]}")
+    return r.content
+
+
 async def transcribir(audio: bytes, mime: str, key: str) -> str:
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(
@@ -153,6 +196,9 @@ class JarvisTelegram:
         return respuesta
 
     async def hablar(self, texto: str) -> bytes:
+        texto = limpiar_para_voz(texto)
+        if self.plan.voz == "elevenlabs":
+            return audio_a_ogg_opus(await sintetizar_eleven_notas(texto))
         voz = crear_voz(self.plan, self.http)
         frames = [ev.frame async for ev in voz.synthesize(texto)]
         pcm = b"".join(bytes(f.data) for f in frames)

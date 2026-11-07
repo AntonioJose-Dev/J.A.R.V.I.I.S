@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -103,13 +104,53 @@ def crear_cerebro(plan: Plan) -> llm.LLM:
     )
 
 
+# ElevenLabs: voz por defecto (la del plugin) hasta que se elija una con ELEVEN_VOICE_ID
+VOZ_ELEVEN_POR_DEFECTO = "hpp4J3VqNfWAUOO0d1Us"
+# Voz en directo: prima la rapidez. Notas de voz de Telegram: prima el realismo.
+MODELO_ELEVEN_VIVO = "eleven_flash_v2_5"
+MODELO_ELEVEN_NOTAS = "eleven_v4"
+
+
+def voz_eleven() -> str:
+    return os.getenv("ELEVEN_VOICE_ID", "").strip() or VOZ_ELEVEN_POR_DEFECTO
+
+
+def ajustes_eleven() -> dict:
+    """Ajustes para que suene natural: algo de variación (estabilidad media) y fiel a la voz original."""
+    return {
+        "stability": float(os.getenv("ELEVEN_STABILITY", "0.4")),
+        "similarity_boost": float(os.getenv("ELEVEN_SIMILARITY", "0.8")),
+        "style": float(os.getenv("ELEVEN_STYLE", "0.3")),
+        "use_speaker_boost": True,
+    }
+
+
+_MARKDOWN = re.compile(r"[*_`#>|~]+")
+_URL = re.compile(r"https?://\S+")
+_EMOJI = re.compile("[\U0001F000-\U0001FAFF☀-➿️‍]+")
+_HORA = re.compile(r"\b(\d{1,2}):(\d{2})\b")
+
+
+def limpiar_para_voz(texto: str) -> str:
+    """Quita lo que no se debe leer en voz alta (markdown, emojis, enlaces) y escribe las horas como se dicen."""
+    texto = _URL.sub("el enlace", texto)
+    texto = _EMOJI.sub("", texto)
+    texto = _MARKDOWN.sub("", texto)
+    texto = _HORA.sub(lambda m: f"{int(m[1])} en punto" if m[2] == "00" else f"{int(m[1])} y {int(m[2])}", texto)
+    texto = re.sub(r"^\s*[-•]\s+", "", texto, flags=re.M)  # viñetas
+    texto = re.sub(r"\s+", " ", texto)
+    return re.sub(r"\s+([.,;:!?])", r"\1", texto).strip()
+
+
 def crear_voz(plan: Plan, http_session: aiohttp.ClientSession | None = None) -> tts.TTS:
+    """Voz para el agente en directo (streaming, baja latencia)."""
     extra = {"http_session": http_session} if http_session else {}
     if plan.voz == "elevenlabs":
         return elevenlabs.TTS(
-            model="eleven_flash_v2_5",
+            model=os.getenv("ELEVEN_MODEL_VIVO", "").strip() or MODELO_ELEVEN_VIVO,
             language="es",
-            **({"voice_id": v} if (v := os.getenv("ELEVEN_VOICE_ID")) else {}),
+            voice_id=voz_eleven(),
+            voice_settings=elevenlabs.VoiceSettings(**ajustes_eleven()),
             **extra,
         )
     return deepgram.TTS(model=os.getenv("JARVIS_DEEPGRAM_VOICE", "aura-2-alvaro-es"), **extra)
