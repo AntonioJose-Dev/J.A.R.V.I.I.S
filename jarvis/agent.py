@@ -7,105 +7,22 @@ Uso:
 
 from __future__ import annotations
 
-import logging
 import os
 import sys
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
-from dotenv import load_dotenv
-from livekit.agents import (
-    Agent,
-    AgentSession,
-    JobContext,
-    RunContext,
-    WorkerOptions,
-    cli,
-    function_tool,
-)
+from livekit.agents import AgentSession, JobContext, WorkerOptions, cli
 from livekit.agents.llm import mcp
-from livekit.plugins import anthropic, deepgram, elevenlabs, openai, silero
+from livekit.plugins import deepgram, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
-from .config import Plan, elegir_plan
+from .config import elegir_plan
+from .core import MAX_TOOL_STEPS, OWNER, Jarvis, crear_cerebro, crear_voz, log
 from .memory import MemoryStore
-from .prompts import system_prompt
-
-load_dotenv()
-log = logging.getLogger("jarvis")
-
-OWNER = os.getenv("JARVIS_OWNER_NAME", "Potro")
-TZ = ZoneInfo("Europe/Madrid")
-
-
-class Jarvis(Agent):
-    def __init__(self, memory: MemoryStore) -> None:
-        self.memory = memory
-        recent = [m.text for m in memory.recent(20)]
-        super().__init__(instructions=system_prompt(OWNER, recent))
-
-    @function_tool
-    async def recordar(self, context: RunContext, hecho: str, categoria: str = "general") -> str:
-        """Guarda un dato importante sobre el usuario para recordarlo siempre.
-
-        Args:
-            hecho: el dato en una frase, por ejemplo "Su madre se llama Carmen".
-            categoria: personas, gustos, fechas, planes o general.
-        """
-        m = self.memory.remember(hecho, categoria)
-        return f"Guardado (#{m.id})."
-
-    @function_tool
-    async def buscar_recuerdos(self, context: RunContext, consulta: str) -> str:
-        """Busca en la memoria datos que el usuario contó antes.
-
-        Args:
-            consulta: palabras clave, por ejemplo "cumpleaños madre".
-        """
-        found = self.memory.recall(consulta)
-        if not found:
-            return "No tengo nada guardado sobre eso."
-        return "\n".join(f"- {m.text} ({m.created_at[:10]})" for m in found)
-
-    @function_tool
-    async def fecha_y_hora(self, context: RunContext) -> str:
-        """Devuelve la fecha y hora actuales en España."""
-        now = datetime.now(TZ)
-        dias = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
-        meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
-                 "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
-        return f"{dias[now.weekday()]} {now.day} de {meses[now.month - 1]} de {now.year}, {now:%H:%M}"
 
 
 def _mcp_servers() -> list[mcp.MCPServer]:
     urls = [u.strip() for u in os.getenv("JARVIS_MCP_URLS", "").split(",") if u.strip()]
     return [mcp.MCPServerHTTP(url=u) for u in urls]
-
-
-def _cerebro(plan: Plan):
-    if plan.cerebro == "claude":
-        return anthropic.LLM(model=os.getenv("JARVIS_MODEL", "claude-sonnet-5-5"), caching="ephemeral")
-    if plan.cerebro == "groq":
-        return openai.LLM(
-            model=os.getenv("JARVIS_GROQ_MODEL", "qwen/qwen3.8-27b"),
-            base_url="https://api.groq.com/openai/v1",
-            api_key=os.environ["GROQ_API_KEY"].strip(),
-        )
-    return openai.LLM(
-        model=os.getenv("JARVIS_GEMINI_MODEL", "gemini-2.5-flash"),
-        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-        api_key=os.environ["GEMINI_API_KEY"].strip(),
-    )
-
-
-def _voz(plan: Plan):
-    if plan.voz == "elevenlabs":
-        return elevenlabs.TTS(
-            model="eleven_flash_v2_5",
-            language="es",
-            **({"voice_id": v} if (v := os.getenv("ELEVEN_VOICE_ID")) else {}),
-        )
-    return deepgram.TTS(model=os.getenv("JARVIS_DEEPGRAM_VOICE", "aura-2-alvaro-es"))
 
 
 async def entrypoint(ctx: JobContext) -> None:
@@ -117,11 +34,11 @@ async def entrypoint(ctx: JobContext) -> None:
     session = AgentSession(
         vad=silero.VAD.load(),
         stt=deepgram.STT(model="nova-3", language="es"),
-        llm=_cerebro(plan),
-        tts=_voz(plan),
+        llm=crear_cerebro(plan),
+        tts=crear_voz(plan),
         turn_detection=MultilingualModel(),
         mcp_servers=_mcp_servers(),
-        max_tool_steps=5,
+        max_tool_steps=MAX_TOOL_STEPS,
     )
     ctx.add_shutdown_callback(lambda: memory.close())
 

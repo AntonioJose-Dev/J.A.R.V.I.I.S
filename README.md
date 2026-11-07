@@ -46,11 +46,29 @@ Las capas gratuitas tienen límites de uso por minuto y por día: de sobra para 
 
 Para probar solo el oído (Deepgram): `python scripts/prueba_oido.py`.
 
+## Hablar con JARVIS por Telegram
+
+El mismo JARVIS (mismo cerebro, herramientas y memoria) también responde por Telegram:
+mensajes de texto, y notas de voz que contesta con texto y con otra nota de voz.
+
+1. En Telegram, abre **@BotFather**, envía `/newbot` y sigue los pasos. Copia el token en `.env` como `TELEGRAM_BOT_TOKEN`.
+2. Arranca el bot:
+   ```bash
+   python -m jarvis.telegram_bot
+   ```
+3. Escríbele `/id` a tu bot. Te dirá tu número de Telegram. Ponlo en `.env` como `TELEGRAM_ALLOWED_IDS` y reinicia el bot.
+
+Solo responde a los IDs de `TELEGRAM_ALLOWED_IDS`: a cualquier otro lo ignora (y lo apunta en el log).
+`/olvida` reinicia la conversación (lo guardado con `recordar` se mantiene).
+El bot funciona mientras esté encendido el ordenador donde lo arrancas.
+
 ## Estructura
 
 | Archivo | Para qué |
 | --- | --- |
-| `jarvis/agent.py` | Sesión de voz, herramientas y arranque |
+| `jarvis/core.py` | Lo común: personalidad, herramientas, cerebro y voz |
+| `jarvis/agent.py` | Agente de voz en tiempo real (LiveKit) |
+| `jarvis/telegram_bot.py` | Canal de Telegram (texto y notas de voz) |
 | `jarvis/config.py` | Elige cerebro y voz según las claves (modo prueba / completo) |
 | `jarvis/prompts.py` | Personalidad e instrucciones |
 | `jarvis/memory.py` | Memoria a largo plazo (SQLite ahora, PostgreSQL + pgvector después) |
