@@ -92,7 +92,7 @@ async def test_mensaje_nunca_se_manda_sin_confirmacion(monkeypatch):
     j._pedir_confirmacion_movil = confirmar
     r = await j.movil_mensaje(None, app="whatsapp", destino="mamá", texto="Llego a las 8")
     assert len(pedidas) == 1 and pedidas[0]["tipo"] == "movil" and pedidas[0]["estado"] == "pendiente"
-    assert "NO está enviado" in r
+    assert "NO hecho" in r
     memoria.close()
 
 

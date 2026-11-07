@@ -23,7 +23,7 @@ import av
 import httpx
 import numpy as np
 from livekit.agents import llm
-from telegram import Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.constants import ChatAction
 from telegram.ext import Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
@@ -73,6 +73,8 @@ def tipo_de_mensaje(texto: str | None, tiene_voz: bool) -> str | None:
         return "start"
     if comando == "/voz":
         return "alternar_voz"
+    if comando in ("/hablar", "/llamame"):
+        return "hablar"
     return "texto"
 
 
@@ -122,7 +124,7 @@ def id_de_boton(data: str | None) -> int | None:
 
 
 def decidir(user_id: int | None, permitidos: frozenset[int], tipo: str | None) -> str:
-    """Qué hacer con un mensaje: 'id', 'start', 'olvida', 'alternar_voz', 'texto', 'voz' o 'ignorar'."""
+    """Qué hacer con un mensaje: 'id', 'start', 'olvida', 'alternar_voz', 'hablar', 'texto', 'voz' o 'ignorar'."""
     if tipo is None or user_id is None:
         return "ignorar"
     if tipo == "id":
@@ -197,6 +199,12 @@ class JarvisTelegram:
                  me.username, self.plan.describir(), describir_voz(self.plan), len(self.permitidos))
         if not self.permitidos:
             log.warning("TELEGRAM_ALLOWED_IDS está vacío: escribe /id al bot y pon tu número en .env")
+        await app.bot.set_my_commands([
+            BotCommand("hablar", "Hablar con JARVIS en directo"),
+            BotCommand("voz", "Contestar también con nota de voz"),
+            BotCommand("olvida", "Empezar la conversación de cero"),
+            BotCommand("id", "Ver tu ID de Telegram"),
+        ])
 
     async def cerrar(self, app: Application) -> None:
         if self.http:
@@ -315,6 +323,20 @@ class JarvisTelegram:
         if accion == "olvida":
             self.historiales.pop(msg.chat_id, None)
             await msg.reply_text("Conversación reiniciada. Lo que me pidió recordar sigue guardado.")
+            return
+        if accion == "hablar":
+            faltan = telefono.llamadas_configuradas()
+            if any(f.startswith("LIVEKIT") for f in faltan):
+                await msg.reply_text("Para hablar en directo hace falta LiveKit Cloud en el .env.")
+                return
+            from . import voz
+
+            url = await voz.crear_sesion(user.id, user.first_name or "Potro")
+            await msg.reply_text(
+                "🎙 Pulsa el botón, luego toca el círculo y habla. Te escucho mientras la pantalla esté abierta.\n"
+                "(El enlace vale para una conversación; para otra, vuelve a escribir /hablar.)",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎙 Hablar con JARVIS", web_app=WebAppInfo(url))]]),
+            )
             return
         if accion == "alternar_voz":
             nuevo = not self.siempre_voz(msg.chat_id)

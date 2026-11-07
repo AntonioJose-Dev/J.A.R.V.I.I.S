@@ -99,10 +99,18 @@ class Jarvis(ControlPC, ControlMovil, Agent):
             return f"No puedo llamar a {numero}: solo se permiten números de España y la UE."
         call_id = self.memory.create_call(nombre, numero, mensaje.strip())
         await self._pedir_confirmacion(self.memory.get_call(call_id))
-        return (
-            f"Llamada a {nombre} ({numero}) preparada, pero NO hecha todavía: {OWNER} tiene en Telegram "
-            "un botón para confirmarla. Díselo así."
-        )
+        return self._texto_pendiente(f"llamar a {nombre} ({numero}) para decirle: «{mensaje.strip()}»")
+
+    confirmacion_por_voz = False
+    siempre_disponibles: frozenset[str] = frozenset()
+
+    def _texto_pendiente(self, descripcion: str) -> str:
+        """Qué decirle al cerebro cuando una acción queda pendiente de confirmar."""
+        if self.confirmacion_por_voz:
+            return (f"PENDIENTE de confirmar: {descripcion}. Pregúntale a {OWNER} de viva voz si lo haces "
+                    "(una frase corta). Solo si responde que sí, usa confirmar_pendiente.")
+        return (f"Preparado, pero NO hecho todavía: {descripcion}. {OWNER} tiene en Telegram un botón "
+                "para confirmarlo. Díselo así.")
 
     @function_tool
     async def recordar(self, context: RunContext, hecho: str, categoria: str = "general") -> str:
@@ -140,7 +148,7 @@ class Jarvis(ControlPC, ControlMovil, Agent):
             self._todas, self._grupos_previos = list(self.tools), set()
         grupos = cerebros.grupos_para(new_message.text_content or "", self._grupos_previos)
         self._grupos_previos = grupos - {"basicas"}
-        permitidas = cerebros.herramientas_de(grupos)
+        permitidas = cerebros.herramientas_de(grupos) | self.siempre_disponibles
         await self.update_tools([t for t in self._todas if t.info.name in permitidas])
 
 

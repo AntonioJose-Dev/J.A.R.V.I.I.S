@@ -125,7 +125,7 @@ async def test_accion_delicada_solo_pide_confirmacion(memoria, monkeypatch):
     respuesta = await j.accion_pc_delicada(None, accion="apagar")
     assert len(pedidas) == 1 and pedidas[0]["estado"] == "pendiente"
     assert pedidas[0]["datos"] == {"accion": "apagar"}
-    assert "NO está hecho" in respuesta
+    assert "NO hecho" in respuesta
 
 
 def test_jarvis_tiene_las_herramientas_del_pc(memoria):

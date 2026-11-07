@@ -112,7 +112,7 @@ async def test_llamar_crea_pendiente_y_pide_confirmacion(memoria, configurado, m
     assert pedidas[0]["estado"] == "pendiente"
     assert pedidas[0]["numero"] == "+34600123456"
     assert pedidas[0]["mensaje"] == "que llego a las 8"
-    assert "NO hecha" in respuesta
+    assert "NO hecho" in respuesta
 
 
 async def test_llamar_sin_configurar_no_crea_nada(memoria, monkeypatch):

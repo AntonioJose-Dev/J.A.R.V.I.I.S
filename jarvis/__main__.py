@@ -49,6 +49,7 @@ def main() -> None:
         print("Llamadas desactivadas (faltan: " + ", ".join(faltan) + ")")
     else:
         procesos["Llamadas"] = ["jarvis.llamadas", "start"]
+        procesos["Voz"] = ["jarvis.agent", "start"]  # voz en directo desde el móvil (/hablar en Telegram)
 
     vivos = {nombre: _arrancar(nombre, args) for nombre, args in procesos.items()}
     print("JARVIS en marcha: " + ", ".join(vivos) + f". Registros en {LOGS}. Ctrl+C para parar.")

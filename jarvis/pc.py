@@ -429,8 +429,7 @@ class ControlPC:
         registrar("pedir_confirmacion", id=accion_id, accion=accion, objetivo=datos.get("objetivo", ""))
         pedir = self._pedir_confirmacion_pc or _pedir_por_telegram
         await pedir(self.memory.get_action(accion_id))
-        return (f"He pedido confirmación en Telegram para {descripcion}. NO está hecho todavía: "
-                "se hará cuando el usuario pulse Sí.")
+        return self._texto_pendiente(descripcion)
 
 
 async def _pedir_por_telegram(accion: dict) -> None:

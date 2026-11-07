@@ -7,6 +7,8 @@ Uso:
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import sys
 
@@ -40,9 +42,30 @@ async def entrypoint(ctx: JobContext) -> None:
         mcp_servers=_mcp_servers(),
         max_tool_steps=MAX_TOOL_STEPS,
     )
-    ctx.add_shutdown_callback(lambda: memory.close())
+    async def cerrar_memoria() -> None:
+        memory.close()
 
-    await session.start(room=ctx.room, agent=Jarvis(memory))
+    ctx.add_shutdown_callback(cerrar_memoria)
+
+    desde_movil = ctx.room.name.startswith("voz-")  # sala creada por el bot de Telegram (Mini App)
+    if desde_movil:
+        from .voz import JarvisVoz
+
+        agente = JarvisVoz(memory)
+
+        @session.on("function_tools_executed")
+        def _avisar_a_la_pagina(ev) -> None:
+            # La página del móvil enseña qué está haciendo JARVIS ("abrir_app · Abriendo YouTube…")
+            for llamada, salida in ev.zipped():
+                datos = {"id": llamada.call_id, "nombre": llamada.name,
+                         "estado": "error" if salida and salida.is_error else "ok",
+                         "texto": (salida.output if salida else "")[:90]}
+                asyncio.create_task(ctx.room.local_participant.publish_data(
+                    json.dumps(datos, ensure_ascii=False).encode(), topic="jarvis", reliable=True))
+    else:
+        agente = Jarvis(memory)
+
+    await session.start(room=ctx.room, agent=agente)
     await session.generate_reply(
         instructions=f"Saluda brevemente a {OWNER} según la hora del día y pregúntale en qué puedes ayudarle."
     )

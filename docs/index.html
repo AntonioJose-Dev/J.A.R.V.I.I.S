@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>JARVIS</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.23.0/dist/livekit-client.umd.min.js"></script>
+<style>
+  :root { --fondo:#05080d; --azul:#3fd0ff; --azul2:#0a84c6; --texto:#d8f3ff; --tenue:#6b8796; --rojo:#ff5a5f; --verde:#4be3a0; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--fondo); color:var(--texto);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { display:flex; flex-direction:column; align-items:center; height:100%; padding:16px; gap:14px; }
+  h1 { font-size:15px; letter-spacing:.35em; color:var(--azul); margin:6px 0 0; font-weight:600; }
+  #estado { font-size:13px; color:var(--tenue); min-height:18px; }
+  #reactor { position:relative; width:min(62vw,260px); aspect-ratio:1; margin-top:8px; cursor:pointer; }
+  #reactor .anillo { position:absolute; inset:0; border-radius:50%; border:2px solid var(--azul2);
+    box-shadow:0 0 24px rgba(63,208,255,.25) inset, 0 0 30px rgba(63,208,255,.15); }
+  #reactor .anillo.r2 { inset:12%; border-style:dashed; animation:giro 14s linear infinite; opacity:.7; }
+  #reactor .nucleo { position:absolute; inset:28%; border-radius:50%;
+    background:radial-gradient(circle, #e9fbff 0%, var(--azul) 35%, rgba(10,132,198,.25) 70%, transparent 72%);
+    transition:transform .08s linear, opacity .3s; opacity:.55; }
+  #reactor.activo .nucleo { opacity:1; }
+  #reactor .rotulo { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-size:14px; color:#012; font-weight:700; letter-spacing:.08em; pointer-events:none; }
+  @keyframes giro { to { transform:rotate(360deg); } }
+  #transcripcion { width:100%; max-width:520px; flex:1; overflow-y:auto; font-size:15px; line-height:1.4;
+    border-top:1px solid #0f2230; padding-top:10px; }
+  .linea { margin:6px 0; }
+  .linea.yo { color:var(--tenue); }
+  .linea.jarvis::before { content:"JARVIS · "; color:var(--azul); font-size:12px; }
+  #acciones { width:100%; max-width:520px; display:flex; flex-direction:column; gap:6px; }
+  .accion { font-size:13px; padding:7px 10px; border:1px solid #12313f; border-radius:8px; background:#07131b; }
+  .accion.ok { border-color:#145a3d; } .accion.error { border-color:#5a1416; }
+  .accion b { color:var(--azul); font-weight:600; }
+  #botones { display:flex; gap:10px; padding-bottom:max(8px, env(safe-area-inset-bottom)); }
+  button { background:#0b1a24; color:var(--texto); border:1px solid #1d3d4f; border-radius:22px; padding:10px 18px; font-size:15px; }
+  button.peligro { border-color:#5a1416; color:#ffb3b5; }
+  button:disabled { opacity:.4; }
+  :focus-visible { outline:2px solid var(--azul); outline-offset:2px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>J.A.R.V.I.S.</h1>
+  <div id="estado" role="status" aria-live="polite">Toca el círculo para hablar con JARVIS</div>
+  <div id="reactor" role="button" tabindex="0" aria-label="Conectar con JARVIS">
+    <div class="anillo"></div><div class="anillo r2"></div><div class="nucleo"></div><div class="rotulo" id="rotulo"></div>
+  </div>
+  <div id="acciones" aria-live="polite"></div>
+  <div id="transcripcion" aria-live="polite"></div>
+  <div id="botones">
+    <button id="silenciar" disabled>🎙️ Silenciar</button>
+    <button id="colgar" class="peligro" disabled>Terminar</button>
+  </div>
+</main>
+<script>
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor("#05080d"); tg.setBackgroundColor("#05080d"); } catch (e) {} }
+
+// El bot de JARVIS pone la dirección de LiveKit y un permiso de un solo uso en el "#" del enlace.
+// Lo que va detrás del # no se envía nunca a ningún servidor.
+const params = new URLSearchParams(location.hash.slice(1));
+const LK_URL = params.get("url"), LK_TOKEN = params.get("token");
+const $ = (id) => document.getElementById(id);
+const estado = (t) => { $("estado").textContent = t; };
+const ESTADOS = { listening: "Te escucho…", thinking: "Pensando…", speaking: "Hablando…", initializing: "Despertando…" };
+
+let room = null;
+const lineas = new Map();
+
+function escribir(id, quien, texto) {
+  let el = lineas.get(id);
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "linea " + quien;
+    lineas.set(id, el);
+    $("transcripcion").appendChild(el);
+  }
+  el.textContent = texto;
+  $("transcripcion").scrollTop = $("transcripcion").scrollHeight;
+}
+
+function accion(datos) {
+  let el = document.getElementById("acc-" + datos.id);
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "acc-" + datos.id;
+    el.className = "accion";
+    $("acciones").prepend(el);
+    while ($("acciones").children.length > 4) $("acciones").lastChild.remove();
+  }
+  el.className = "accion " + (datos.estado || "");
+  el.innerHTML = "";
+  const b = document.createElement("b"); b.textContent = datos.nombre;
+  el.append(b, document.createTextNode(" · " + (datos.texto || "")));
+}
+
+async function conectar() {
+  if (room) return;
+  if (!LK_URL || !LK_TOKEN) { estado("Abre esta pantalla desde el botón del bot de JARVIS."); return; }
+  estado("Conectando…");
+  room = new LivekitClient.Room({ adaptiveStream: true, dynacast: true });
+
+  room.on(LivekitClient.RoomEvent.TrackSubscribed, (track) => {
+    if (track.kind === "audio") { const a = track.attach(); a.style.display = "none"; document.body.appendChild(a); }
+  });
+  room.on(LivekitClient.RoomEvent.ParticipantAttributesChanged, (attrs, p) => {
+    const s = attrs["lk.agent.state"]; if (s && ESTADOS[s]) estado(ESTADOS[s]);
+  });
+  room.on(LivekitClient.RoomEvent.DataReceived, (payload, p, kind, topic) => {
+    if (topic !== "jarvis") return;
+    try { accion(JSON.parse(new TextDecoder().decode(payload))); } catch (e) {}
+  });
+  room.on(LivekitClient.RoomEvent.Disconnected, () => {
+    estado("Conversación terminada. Vuelve a abrir desde el bot para hablar otra vez.");
+    $("reactor").classList.remove("activo"); $("silenciar").disabled = $("colgar").disabled = true; room = null;
+  });
+  room.registerTextStreamHandler("lk.transcription", async (reader, info) => {
+    const quien = info.identity === room.localParticipant.identity ? "yo" : "jarvis";
+    let texto = "";
+    for await (const trozo of reader) { texto += trozo; escribir(reader.info.id, quien, texto); }
+  });
+
+  try {
+    await room.connect(LK_URL, LK_TOKEN);
+    await room.localParticipant.setMicrophoneEnabled(true, { echoCancellation: true, noiseSuppression: true, autoGainControl: true });
+    await room.startAudio();
+  } catch (e) {
+    estado("No pude conectar: " + (e && e.message ? e.message : e) + ". Pide un enlace nuevo al bot (/hablar).");
+    room = null; return;
+  }
+  $("reactor").classList.add("activo"); $("silenciar").disabled = $("colgar").disabled = false;
+  estado("Despertando a JARVIS…");
+  animar();
+}
+
+function animar() {
+  if (!room) return;
+  let nivel = 0;
+  room.remoteParticipants.forEach((p) => { nivel = Math.max(nivel, p.audioLevel || 0); });
+  nivel = Math.max(nivel, (room.localParticipant.audioLevel || 0) * 0.6);
+  document.querySelector("#reactor .nucleo").style.transform = `scale(${1 + Math.min(nivel * 1.8, 0.9)})`;
+  requestAnimationFrame(animar);
+}
+
+$("reactor").addEventListener("click", conectar);
+$("reactor").addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") conectar(); });
+$("silenciar").addEventListener("click", async () => {
+  if (!room) return;
+  const activo = room.localParticipant.isMicrophoneEnabled;
+  await room.localParticipant.setMicrophoneEnabled(!activo);
+  $("silenciar").textContent = activo ? "🔇 Activar micro" : "🎙️ Silenciar";
+});
+$("colgar").addEventListener("click", () => { if (room) room.disconnect(); if (tg) tg.close(); });
+</script>
+</body>
+</html>

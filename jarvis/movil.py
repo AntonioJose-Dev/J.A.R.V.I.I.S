@@ -430,4 +430,4 @@ class ControlMovil:
         else:
             telegram_api.pedir_confirmacion(f"📱 JARVIS quiere {descripcion}. ¿Le dejas?\n(Caduca en 10 minutos.)",
                                             "acc", accion_id)
-        return f"He pedido confirmación en Telegram para {descripcion}. NO está enviado todavía."
+        return self._texto_pendiente(descripcion)
