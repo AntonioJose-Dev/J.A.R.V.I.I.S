@@ -87,7 +87,7 @@ def _cerebro(plan: Plan):
         return anthropic.LLM(model=os.getenv("JARVIS_MODEL", "claude-sonnet-5-5"), caching="ephemeral")
     if plan.cerebro == "groq":
         return openai.LLM(
-            model=os.getenv("JARVIS_GROQ_MODEL", "llama-3.3-70b-versatile"),
+            model=os.getenv("JARVIS_GROQ_MODEL", "qwen/qwen3.8-27b"),
             base_url="https://api.groq.com/openai/v1",
             api_key=os.environ["GROQ_API_KEY"].strip(),
         )

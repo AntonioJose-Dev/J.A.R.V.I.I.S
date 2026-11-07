@@ -28,7 +28,7 @@ python -m jarvis.agent console     # habla con JARVIS desde el terminal
 Si aún no tienes las claves de Anthropic o ElevenLabs, JARVIS arranca igual:
 
 - **Cerebro:** sin `ANTHROPIC_API_KEY` usa un modelo gratuito en la nube:
-  [Groq](https://console.groq.com/keys) (`GROQ_API_KEY`, Llama 3.3 70B) o, como alternativa,
+  [Groq](https://console.groq.com/keys) (`GROQ_API_KEY`, Qwen 3.8 27B; también vale `openai/gpt-oss-120b`) o, como alternativa,
   [Gemini](https://aistudio.google.com/apikey) (`GEMINI_API_KEY`).
 - **Voz:** sin `ELEVEN_API_KEY` habla con la voz española de Deepgram (`aura-2-alvaro-es`).
 

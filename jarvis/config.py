@@ -2,7 +2,7 @@
 
 Cerebro (en este orden):
 - Claude (Anthropic) si hay ANTHROPIC_API_KEY.
-- Groq (gratis, modelo Llama en la nube) si hay GROQ_API_KEY.
+- Groq (gratis, modelo Qwen en la nube) si hay GROQ_API_KEY.
 - Gemini (capa gratuita de Google) si hay GEMINI_API_KEY.
 
 Voz: ElevenLabs si hay ELEVEN_API_KEY; si no, Deepgram Aura (misma clave que el oído).
