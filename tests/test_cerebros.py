@@ -50,6 +50,29 @@ def test_grupos_de_herramientas(texto, esperados, no_esperados):
     assert esperados <= g and not (no_esperados & g)
 
 
+@pytest.mark.parametrize("texto, va_al_movil", [
+    ("Abre YouTube", True),
+    ("Sube el volumen", True),
+    ("Pon música", True),
+    ("Busca en Google el tiempo", True),
+    ("Abre YouTube en el PC", False),
+    ("Abre Brave en el ordenador", False),
+    ("¿Cómo está el portátil?", False),
+])
+def test_desde_el_movil_lo_ambiguo_va_al_movil(texto, va_al_movil):
+    g = cerebros.grupos_para(texto, preferir_movil=True)
+    assert ("movil" in g and "pc" not in g) if va_al_movil else ("pc" in g)
+
+
+def test_desde_el_movil_no_arrastra_el_pc_del_turno_anterior():
+    g = cerebros.grupos_para("abre youtube", {"pc"}, preferir_movil=True)
+    assert "pc" not in g and "movil" in g
+
+
+def test_desde_el_pc_abre_sigue_siendo_el_pc():
+    assert "pc" in cerebros.grupos_para("Abre YouTube")
+
+
 def test_sigue_el_hilo_del_turno_anterior():
     # "busca el archivo factura" (pc) y luego "mándamelo": el grupo pc se mantiene
     assert "pc" in cerebros.grupos_para("vale, ese", cerebros.grupos_de_herramientas({"buscar_archivo"}))

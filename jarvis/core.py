@@ -32,6 +32,11 @@ log = logging.getLogger("jarvis")
 OWNER = os.getenv("JARVIS_OWNER_NAME", "Potro")
 TZ = ZoneInfo("Europe/Madrid")
 MAX_TOOL_STEPS = 5
+NOTA_MOVIL = (
+    "Ahora mismo te habla desde su MÓVIL. Si pide abrir una app o una web, poner música, subir el volumen, "
+    "una alarma o mandar un mensaje sin decir dónde, hazlo en el MÓVIL (movil_hacer, movil_mensaje). "
+    "Usa el PC solo si dice 'en el PC' o 'en el ordenador'."
+)
 # Palabras que Deepgram debe reconocer aunque no sean españolas ("Yarbi" -> "Jarvis")
 KEYTERMS = ["Jarvis"]
 
@@ -102,6 +107,7 @@ class Jarvis(ControlPC, ControlMovil, Agent):
         return self._texto_pendiente(f"llamar a {nombre} ({numero}) para decirle: «{mensaje.strip()}»")
 
     confirmacion_por_voz = False
+    preferir_movil = False  # hablando desde el móvil: "abre X" es en el móvil
     siempre_disponibles: frozenset[str] = frozenset()
 
     def _texto_pendiente(self, descripcion: str) -> str:
@@ -143,10 +149,12 @@ class Jarvis(ControlPC, ControlMovil, Agent):
     async def on_user_turn_completed(self, turn_ctx: llm.ChatContext, new_message: llm.ChatMessage) -> None:
         # Agente de voz: antes de cada respuesta le recordamos la hora real…
         turn_ctx.add_message(role="system", content=nota_de_hora())
+        if self.preferir_movil:
+            turn_ctx.add_message(role="system", content=NOTA_MOVIL)
         # …y le damos solo las herramientas que hacen falta para esta frase (gasta mucho menos)
         if not hasattr(self, "_todas"):
             self._todas, self._grupos_previos = list(self.tools), set()
-        grupos = cerebros.grupos_para(new_message.text_content or "", self._grupos_previos)
+        grupos = cerebros.grupos_para(new_message.text_content or "", self._grupos_previos, self.preferir_movil)
         self._grupos_previos = grupos - {"basicas"}
         permitidas = cerebros.herramientas_de(grupos) | self.siempre_disponibles
         await self.update_tools([t for t in self._todas if t.info.name in permitidas])
@@ -251,7 +259,8 @@ async def responder(cerebro: llm.LLM, jarvis: Jarvis, historial: llm.ChatContext
     """Añade `texto` al historial, deja que JARVIS piense (usando herramientas) y devuelve su respuesta."""
     # Solo las herramientas que hacen falta (más las usadas hace poco, para "mándamelo", "sí, ese", etc.)
     recientes = {i.name for i in historial.items[-8:] if getattr(i, "type", None) == "function_call"}
-    grupos = cerebros.grupos_para(texto, cerebros.grupos_de_herramientas(recientes))
+    preferir_movil = getattr(jarvis, "preferir_movil", False)
+    grupos = cerebros.grupos_para(texto, cerebros.grupos_de_herramientas(recientes), preferir_movil)
     permitidas = cerebros.herramientas_de(grupos)
     historial.add_message(role="user", content=texto)
     herramientas = {t.info.name: t for t in jarvis.tools if t.info.name in permitidas}
@@ -260,7 +269,8 @@ async def responder(cerebro: llm.LLM, jarvis: Jarvis, historial: llm.ChatContext
     reintentado = False
     for _ in range(MAX_TOOL_STEPS + 1):
         ctx = historial.copy()
-        ctx.items.insert(0, llm.ChatMessage(role="system", content=[jarvis.instructions, nota_de_hora()]))
+        sistema = [jarvis.instructions, nota_de_hora()] + ([NOTA_MOVIL] if preferir_movil else [])
+        ctx.items.insert(0, llm.ChatMessage(role="system", content=sistema))
         respuesta, llamadas = "", []
         async with cerebro.chat(chat_ctx=ctx, tools=list(herramientas.values())) as stream:
             async for chunk in stream:
@@ -287,9 +297,13 @@ async def _ejecutar(herramientas: dict, nombre: str, argumentos: str) -> tuple[s
     if nombre not in herramientas:
         return f"La herramienta {nombre} no existe.", True
     log.info("Herramienta usada: %s", nombre)
+    args: dict = {}
     try:
         args = json.loads(argumentos or "{}") or {}
+        # Los modelos pequeños a veces mandan null en campos opcionales: mejor usar el valor por defecto
+        args = {k: v for k, v in args.items() if v is not None}
         return str(await herramientas[nombre](None, **args)), False
     except Exception as e:  # el modelo puede mandar argumentos raros
-        log.warning("Fallo en la herramienta %s: %s", nombre, e)
-        return f"Error: {e}", True
+        log.warning("Fallo en la herramienta %s (campos %s): %s", nombre, sorted(args), e)
+        return (f"Error: {e}. NO se ha hecho. Revisa los datos y vuelve a intentarlo, "
+                "o dile al usuario que ha fallado; nunca digas que está hecho."), True

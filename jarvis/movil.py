@@ -130,7 +130,9 @@ APPS_CONOCIDAS = {
 def resolver_paquete(nombre: str, paquetes: list[str]) -> str | None:
     from .pc import clave
 
-    k = clave(nombre).replace(" ", "")
+    k = clave(nombre or "").replace(" ", "")
+    if not k:
+        return None
     pista = APPS_CONOCIDAS.get(clave(nombre), k)
     if pista in paquetes:
         return pista
@@ -343,6 +345,8 @@ class ControlMovil:
         registrar("movil_hacer", accion=accion, valor=valor if accion != "hablar" else "(texto)")
         try:
             if accion == "abrir_app":
+                if not valor.strip():
+                    return "Falta el nombre de la app: llama otra vez con valor = nombre de la app (p. ej. 'YouTube')."
                 pkg = resolver_paquete(valor, lista_paquetes())
                 if not pkg:
                     return f"No encuentro la app {valor} en el móvil."

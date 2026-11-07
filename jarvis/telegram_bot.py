@@ -217,7 +217,9 @@ class JarvisTelegram:
     async def pensar(self, chat_id: int, texto: str) -> str:
         historial = self.historiales.setdefault(chat_id, llm.ChatContext())
         t0 = time.perf_counter()
-        respuesta = await responder(self.cerebro, Jarvis(self.memory), historial, texto)
+        jarvis = Jarvis(self.memory)
+        jarvis.preferir_movil = True  # en Telegram estás con el móvil: "abre X" es en el móvil
+        respuesta = await responder(self.cerebro, jarvis, historial, texto)
         historial.truncate(max_items=HISTORIAL_MAX)
         log.info("Respuesta en %.2f s", time.perf_counter() - t0)
         return respuesta

@@ -117,10 +117,20 @@ def _normalizar(texto: str) -> str:
     return unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode().lower()
 
 
-def grupos_para(texto: str, usados_antes: set[str] = frozenset()) -> set[str]:
-    """Qué grupos de herramientas necesita un mensaje (más los del turno anterior, para seguir el hilo)."""
+MENCIONA_PC = r"\bpc\b|ordenador|portatil|computador"
+
+
+def grupos_para(texto: str, usados_antes: set[str] = frozenset(), preferir_movil: bool = False) -> set[str]:
+    """Qué grupos de herramientas necesita un mensaje (más los del turno anterior, para seguir el hilo).
+
+    Con `preferir_movil` (hablando desde el móvil), "abre YouTube" o "sube el volumen" van al móvil
+    salvo que se diga "en el PC" / "en el ordenador".
+    """
     t = _normalizar(texto)
     grupos = {"basicas"} | {g for g, patron in PALABRAS.items() if re.search(patron, t)}
+    if preferir_movil and "pc" in grupos and not re.search(MENCIONA_PC, t):
+        grupos = (grupos - {"pc"}) | {"movil"}
+        usados_antes = set(usados_antes) - {"pc"}
     if "movil" in grupos and not re.search(r"\bpc\b|ordenador|portatil", t):
         # "sube el volumen del móvil", "abre whatsapp en el móvil": no hace falta el PC
         if re.search(r"movil|celular", t):

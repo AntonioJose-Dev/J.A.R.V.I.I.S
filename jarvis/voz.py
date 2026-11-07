@@ -45,6 +45,7 @@ class JarvisVoz(Jarvis):
     """JARVIS en una conversación de voz en directo: las confirmaciones se hacen hablando."""
 
     confirmacion_por_voz = True
+    preferir_movil = True  # habla desde la Mini App de Telegram, en el móvil
     siempre_disponibles = frozenset({"confirmar_pendiente"})
 
     def __init__(self, memory) -> None:

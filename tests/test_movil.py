@@ -59,6 +59,26 @@ def test_resolver_paquete(pedido, esperado):
     assert movil.resolver_paquete(pedido, paquetes) == esperado
 
 
+def test_sin_nombre_no_abre_una_app_cualquiera():
+    assert movil.resolver_paquete("", ["com.whatsapp", "com.a"]) is None
+    assert movil.resolver_paquete(None, ["com.whatsapp", "com.a"]) is None
+
+
+async def test_campos_null_del_modelo_usan_el_valor_por_defecto():
+    from jarvis.core import _ejecutar
+
+    recibido = {}
+
+    async def herramienta(ctx, accion, valor=""):
+        recibido.update(accion=accion, valor=valor)
+        return "ok"
+
+    salida, error = await _ejecutar({"h": herramienta}, "h", '{"accion": "abrir_app", "valor": null}')
+    assert (salida, error) == ("ok", False) and recibido == {"accion": "abrir_app", "valor": ""}
+    salida, error = await _ejecutar({"h": herramienta}, "h", '{"otra_cosa": 1}')
+    assert error and "NO se ha hecho" in salida
+
+
 def test_comillas_para_la_shell_del_movil():
     assert movil.q("hola") == "'hola'"
     assert movil.q("l'Hospitalet; rm -rf /") == "'l'\\''Hospitalet; rm -rf /'"  # nada se ejecuta fuera de las comillas
