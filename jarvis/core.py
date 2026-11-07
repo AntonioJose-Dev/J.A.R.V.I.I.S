@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 from livekit.agents import Agent, RunContext, function_tool, llm, tts
 from livekit.plugins import anthropic, deepgram, elevenlabs, openai
 
-from . import telefono
+from . import cerebros, telefono
 from .movil import ControlMovil
 from .pc import ControlPC
 from .config import Plan
@@ -133,39 +133,46 @@ class Jarvis(ControlPC, ControlMovil, Agent):
         return fecha_hora_texto()
 
     async def on_user_turn_completed(self, turn_ctx: llm.ChatContext, new_message: llm.ChatMessage) -> None:
-        # Agente de voz: antes de cada respuesta le recordamos la hora real.
+        # Agente de voz: antes de cada respuesta le recordamos la hora real…
         turn_ctx.add_message(role="system", content=nota_de_hora())
+        # …y le damos solo las herramientas que hacen falta para esta frase (gasta mucho menos)
+        if not hasattr(self, "_todas"):
+            self._todas, self._grupos_previos = list(self.tools), set()
+        grupos = cerebros.grupos_para(new_message.text_content or "", self._grupos_previos)
+        self._grupos_previos = grupos - {"basicas"}
+        permitidas = cerebros.herramientas_de(grupos)
+        await self.update_tools([t for t in self._todas if t.info.name in permitidas])
 
 
 def _un_cerebro(nombre: str) -> llm.LLM:
     if nombre == "claude":
         return anthropic.LLM(model=os.getenv("JARVIS_MODEL", "claude-sonnet-5-5"), caching="ephemeral")
-    if nombre == "groq":
-        return openai.LLM(
-            model=os.getenv("JARVIS_GROQ_MODEL", "openai/gpt-oss-120b"),
-            base_url="https://api.groq.com/openai/v1",
-            api_key=os.environ["GROQ_API_KEY"].strip(),
-        )
-    return openai.LLM(
-        model=os.getenv("JARVIS_GEMINI_MODEL", "gemini-2.5-flash"),
-        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-        api_key=os.environ["GEMINI_API_KEY"].strip(),
-    )
+    prov = cerebros.POR_NOMBRE[nombre]
+    modelo = cerebros.modelo_de(prov)
+    log.info("Cerebro %s: modelo %s", nombre, modelo)
+    return openai.LLM(model=modelo, base_url=prov.base_url, api_key=os.environ[prov.clave].strip())
 
 
 def cerebros_disponibles(plan: Plan, env=os.environ) -> list[str]:
     """El elegido primero y, de reserva, los demás que tengan clave (por si se agota el límite gratuito)."""
-    claves = {"claude": "ANTHROPIC_API_KEY", "groq": "GROQ_API_KEY", "gemini": "GEMINI_API_KEY"}
-    reserva = [c for c in ("claude", "groq", "gemini") if c != plan.cerebro and env.get(claves[c], "").strip()]
-    return [plan.cerebro] + reserva
+    return [plan.cerebro] + [c for c in cerebros.disponibles(env) if c != plan.cerebro]
 
 
 def crear_cerebro(plan: Plan) -> llm.LLM:
     nombres = cerebros_disponibles(plan)
     if len(nombres) == 1:
         return _un_cerebro(nombres[0])
-    # Si el primero falla (p. ej. límite por minuto de Groq), sigue con el siguiente sin cortar la conversación
-    return llm.FallbackAdapter([_un_cerebro(n) for n in nombres], attempt_timeout=15.0)
+    # Si uno falla (p. ej. límite por minuto), sigue con el siguiente sin cortar la conversación.
+    # El que falló queda "en reposo" y LiveKit lo vuelve a probar en segundo plano hasta que se recupera.
+    adaptador = llm.FallbackAdapter([_un_cerebro(n) for n in nombres], attempt_timeout=20.0)
+    etiquetas = {id(m): n for m, n in zip(adaptador._llm_instances, nombres)} if hasattr(adaptador, "_llm_instances") else {}
+
+    def _aviso(ev) -> None:
+        quien = etiquetas.get(id(getattr(ev, "llm", None)), "un cerebro")
+        log.warning("%s %s", quien, "vuelve a estar disponible" if ev.available else "no responde (límite o error): paso al siguiente")
+
+    adaptador.on("llm_availability_changed", _aviso)
+    return adaptador
 
 
 # ElevenLabs: voz por defecto (la del plugin) hasta que se elija una con ELEVEN_VOICE_ID
@@ -234,8 +241,13 @@ def crear_voz(plan: Plan, http_session: aiohttp.ClientSession | None = None) -> 
 
 async def responder(cerebro: llm.LLM, jarvis: Jarvis, historial: llm.ChatContext, texto: str) -> str:
     """Añade `texto` al historial, deja que JARVIS piense (usando herramientas) y devuelve su respuesta."""
+    # Solo las herramientas que hacen falta (más las usadas hace poco, para "mándamelo", "sí, ese", etc.)
+    recientes = {i.name for i in historial.items[-8:] if getattr(i, "type", None) == "function_call"}
+    grupos = cerebros.grupos_para(texto, cerebros.grupos_de_herramientas(recientes))
+    permitidas = cerebros.herramientas_de(grupos)
     historial.add_message(role="user", content=texto)
-    herramientas = {t.info.name: t for t in jarvis.tools}
+    herramientas = {t.info.name: t for t in jarvis.tools if t.info.name in permitidas}
+    log.info("Grupos de herramientas: %s (%d herramientas)", ",".join(sorted(grupos)), len(herramientas))
     respuesta = ""
     reintentado = False
     for _ in range(MAX_TOOL_STEPS + 1):

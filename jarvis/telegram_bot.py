@@ -42,7 +42,7 @@ from .core import (
 from .memory import MemoryStore
 
 log = logging.getLogger("jarvis.telegram")
-HISTORIAL_MAX = 30  # mensajes recientes que JARVIS recuerda de cada chat
+HISTORIAL_MAX = 16  # mensajes recientes que JARVIS recuerda de cada chat
 DEEPGRAM_URL = "https://api.deepgram.com/v1/listen"
 
 

@@ -22,6 +22,9 @@ MODOS = ("auto", "prueba", "completo")
 NOMBRES = {
     "claude": "Claude",
     "groq": "Groq (gratis)",
+    "mistral": "Mistral (gratis)",
+    "cerebras": "Cerebras (gratis)",
+    "groq_qwen": "Groq Qwen (gratis)",
     "gemini": "Gemini (gratis)",
     "elevenlabs": "ElevenLabs",
     "deepgram": "Deepgram Aura",
@@ -41,14 +44,18 @@ def _tiene(env: Mapping[str, str], clave: str) -> bool:
     return bool(env.get(clave, "").strip())
 
 
+GRATUITOS = (("gemini", "GEMINI_API_KEY"), ("mistral", "MISTRAL_API_KEY"),
+             ("cerebras", "CEREBRAS_API_KEY"), ("groq", "GROQ_API_KEY"))
+
+
 def _cerebro_gratuito(env: Mapping[str, str]) -> str:
-    if _tiene(env, "GROQ_API_KEY"):
-        return "groq"
-    if _tiene(env, "GEMINI_API_KEY"):
-        return "gemini"
+    for nombre, clave in GRATUITOS:
+        if _tiene(env, clave):
+            return nombre
     raise ValueError(
         "JARVIS no tiene cerebro: pon en .env ANTHROPIC_API_KEY, o una clave gratuita "
-        "GROQ_API_KEY (console.groq.com) o GEMINI_API_KEY (aistudio.google.com)."
+        "GEMINI_API_KEY (aistudio.google.com/apikey), MISTRAL_API_KEY (console.mistral.ai), "
+        "CEREBRAS_API_KEY (cloud.cerebras.ai) o GROQ_API_KEY (console.groq.com)."
     )
 
 
