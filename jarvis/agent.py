@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -23,9 +24,10 @@ from livekit.agents import (
     function_tool,
 )
 from livekit.agents.llm import mcp
-from livekit.plugins import anthropic, deepgram, elevenlabs, silero
+from livekit.plugins import anthropic, deepgram, elevenlabs, openai, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
+from .config import Plan, elegir_plan
 from .memory import MemoryStore
 from .prompts import system_prompt
 
@@ -80,19 +82,43 @@ def _mcp_servers() -> list[mcp.MCPServer]:
     return [mcp.MCPServerHTTP(url=u) for u in urls]
 
 
+def _cerebro(plan: Plan):
+    if plan.cerebro == "claude":
+        return anthropic.LLM(model=os.getenv("JARVIS_MODEL", "claude-sonnet-5-5"), caching="ephemeral")
+    if plan.cerebro == "groq":
+        return openai.LLM(
+            model=os.getenv("JARVIS_GROQ_MODEL", "llama-3.3-70b-versatile"),
+            base_url="https://api.groq.com/openai/v1",
+            api_key=os.environ["GROQ_API_KEY"].strip(),
+        )
+    return openai.LLM(
+        model=os.getenv("JARVIS_GEMINI_MODEL", "gemini-2.5-flash"),
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        api_key=os.environ["GEMINI_API_KEY"].strip(),
+    )
+
+
+def _voz(plan: Plan):
+    if plan.voz == "elevenlabs":
+        return elevenlabs.TTS(
+            model="eleven_flash_v2_5",
+            language="es",
+            **({"voice_id": v} if (v := os.getenv("ELEVEN_VOICE_ID")) else {}),
+        )
+    return deepgram.TTS(model=os.getenv("JARVIS_DEEPGRAM_VOICE", "aura-2-alvaro-es"))
+
+
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
+    plan = elegir_plan(os.environ)
+    log.info("JARVIS arranca con %s", plan.describir())
     memory = MemoryStore(os.getenv("JARVIS_MEMORY_PATH", "jarvis_memoria.db"))
 
     session = AgentSession(
         vad=silero.VAD.load(),
         stt=deepgram.STT(model="nova-3", language="es"),
-        llm=anthropic.LLM(model=os.getenv("JARVIS_MODEL", "claude-sonnet-5-5"), caching="ephemeral"),
-        tts=elevenlabs.TTS(
-            model="eleven_flash_v2_5",
-            language="es",
-            **({"voice_id": v} if (v := os.getenv("ELEVEN_VOICE_ID")) else {}),
-        ),
+        llm=_cerebro(plan),
+        tts=_voz(plan),
         turn_detection=MultilingualModel(),
         mcp_servers=_mcp_servers(),
         max_tool_steps=5,
@@ -106,6 +132,11 @@ async def entrypoint(ctx: JobContext) -> None:
 
 
 def main() -> None:
+    if "download-files" not in sys.argv:
+        try:
+            print(f"JARVIS: {elegir_plan(os.environ).describir()}")
+        except ValueError as e:
+            sys.exit(f"ERROR: {e}")
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
 
 

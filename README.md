@@ -23,11 +23,35 @@ python -m jarvis.agent download-files   # descarga los modelos locales (VAD, tur
 python -m jarvis.agent console     # habla con JARVIS desde el terminal
 ```
 
+## Modo prueba (gratis: Deepgram + Groq)
+
+Si aún no tienes las claves de Anthropic o ElevenLabs, JARVIS arranca igual:
+
+- **Cerebro:** sin `ANTHROPIC_API_KEY` usa un modelo gratuito en la nube:
+  [Groq](https://console.groq.com/keys) (`GROQ_API_KEY`, Llama 3.3 70B) o, como alternativa,
+  [Gemini](https://aistudio.google.com/apikey) (`GEMINI_API_KEY`).
+- **Voz:** sin `ELEVEN_API_KEY` habla con la voz española de Deepgram (`aura-2-alvaro-es`).
+
+Pon `DEEPGRAM_API_KEY` y `GROQ_API_KEY` en `.env` y ejecuta:
+
+```bash
+python -m jarvis.agent console
+```
+
+Cada pieza cambia sola a la versión buena en cuanto pones su clave en `.env`.
+`JARVIS_MODO=prueba` fuerza el modo prueba y `JARVIS_MODO=completo` exige Claude + ElevenLabs.
+Otras voces de Deepgram en español: `aura-2-nestor-es`, `aura-2-javier-es`, `aura-2-sirio-es`, `aura-2-celeste-es`...
+
+Las capas gratuitas tienen límites de uso por minuto y por día: de sobra para probar, pero no para uso diario.
+
+Para probar solo el oído (Deepgram): `python scripts/prueba_oido.py`.
+
 ## Estructura
 
 | Archivo | Para qué |
 | --- | --- |
 | `jarvis/agent.py` | Sesión de voz, herramientas y arranque |
+| `jarvis/config.py` | Elige cerebro y voz según las claves (modo prueba / completo) |
 | `jarvis/prompts.py` | Personalidad e instrucciones |
 | `jarvis/memory.py` | Memoria a largo plazo (SQLite ahora, PostgreSQL + pgvector después) |
 | `tests/` | Pruebas (`pytest`) |
