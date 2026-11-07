@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # Instalador del agente de JARVIS en el móvil (ejecutar dentro de Termux):
 #   curl -fsSL https://raw.githubusercontent.com/AntonioJose-Dev/J.A.R.V.I.I.S/main/movil/instalar.sh | JARVIS_TOKEN=... bash
-REPO="https://raw.githubusercontent.com/AntonioJose-Dev/J.A.R.V.I.I.S/main/movil"
+REPO="https://raw.githubusercontent.com/AntonioJose-Dev/J.A.R.V.I.I.S/${JARVIS_REF:-main}/movil"
 export DEBIAN_FRONTEND=noninteractive
 OPCIONES=(-y -o Dpkg::Options::=--force-confnew -o Dpkg::Options::=--force-confdef)
 
