@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PUERTO = int(os.environ.get("JARVIS_MOVIL_PUERTO", "8765"))
 RUTA_TOKEN = os.path.expanduser("~/.jarvis_token")
-VERSION = "1"
+VERSION = "2"
 
 
 def ejecutar(cmd: list[str], timeout: float = 30) -> str:
@@ -182,7 +182,39 @@ def foto(v: str) -> dict:
             return {"jpg_base64": base64.b64encode(f.read()).decode()}
 
 
+URL_AGENTE = "https://raw.githubusercontent.com/AntonioJose-Dev/J.A.R.V.I.I.S/main/movil/agente.py"
+
+
+def cambiar_token(v: str) -> dict:
+    """Cambia el código secreto (la petición ya viene autenticada con el código actual)."""
+    nuevo = v.strip().replace("-", "")
+    if len(nuevo) < 16:
+        raise ValueError("código demasiado corto")
+    with open(RUTA_TOKEN, "w", encoding="utf-8") as f:
+        f.write(nuevo)
+    os.chmod(RUTA_TOKEN, 0o600)
+    Manejador.token = nuevo
+    return {"ok": True}
+
+
+def actualizar(_v: str) -> dict:
+    """Descarga la última versión del agente y se reinicia (el bucle de arranque lo vuelve a lanzar)."""
+    import threading
+    import urllib.request
+
+    destino = os.path.abspath(__file__)
+    with urllib.request.urlopen(URL_AGENTE, timeout=30) as r:
+        codigo = r.read()
+    compile(codigo, destino, "exec")  # no se instala nada que no sea Python válido
+    with open(destino + ".nuevo", "wb") as f:
+        f.write(codigo)
+    os.replace(destino + ".nuevo", destino)
+    threading.Timer(1.0, lambda: os._exit(0)).start()
+    return {"ok": True, "reiniciando": True}
+
+
 ACCIONES = {
+    "cambiar_token": cambiar_token, "actualizar": actualizar,
     "estado": estado, "ubicacion": ubicacion, "notificaciones": notificaciones, "linterna": linterna,
     "volumen": volumen, "sonar": sonar, "hablar": hablar, "vibrar": vibrar, "alarma": alarma,
     "temporizador": temporizador, "abrir_web": abrir_web, "abrir_app": abrir_app, "paquetes": paquetes,
