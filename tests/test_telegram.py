@@ -64,14 +64,14 @@ def test_comando_voz():
     assert decidir(999, PERMITIDOS, "alternar_voz") == "ignorar"
 
 
-def test_a_un_audio_se_contesta_solo_con_audio():
-    assert que_enviar(me_mando_audio=True, siempre_voz=False) == (False, True)
-    assert que_enviar(me_mando_audio=True, siempre_voz=True) == (False, True)
+def test_por_defecto_siempre_con_audio():
+    assert que_enviar(me_mando_audio=True, modo_texto=False) == (False, True)
+    assert que_enviar(me_mando_audio=False, modo_texto=False) == (False, True)  # aunque escriba
 
 
-def test_a_un_texto_se_contesta_con_texto_y_voz_solo_si_esta_activada():
-    assert que_enviar(me_mando_audio=False, siempre_voz=False) == (True, False)
-    assert que_enviar(me_mando_audio=False, siempre_voz=True) == (True, True)
+def test_modo_texto_con_voz():
+    assert que_enviar(me_mando_audio=False, modo_texto=True) == (True, False)
+    assert que_enviar(me_mando_audio=True, modo_texto=True) == (False, True)  # a un audio, siempre audio
 
 
 def test_pcm_a_ogg_opus_genera_audio_valido():

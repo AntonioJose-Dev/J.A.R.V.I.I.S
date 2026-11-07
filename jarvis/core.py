@@ -296,20 +296,27 @@ def limpiar_para_voz(texto: str) -> str:
     return re.sub(r"\s+([.,;:!?])", r"\1", texto).strip()
 
 
+def voz_de_reserva(http_session: aiohttp.ClientSession | None = None) -> tts.TTS:
+    """Voz castellana de Deepgram (usa la misma clave que el oído): siempre disponible de reserva."""
+    extra = {"http_session": http_session} if http_session else {}
+    return deepgram.TTS(model=os.getenv("JARVIS_DEEPGRAM_VOICE", "aura-2-alvaro-es"), **extra)
+
+
 def crear_voz(plan: Plan, http_session: aiohttp.ClientSession | None = None) -> tts.TTS:
-    """La voz de JARVIS. Es la misma para llamadas, voz del PC y notas de voz de Telegram."""
+    """La voz de JARVIS. Es la misma para llamadas, voz del PC y notas de voz de Telegram.
+    Si ElevenLabs falla (clave, permisos o cupo), habla con la voz de reserva en vez de quedarse mudo."""
     extra = {"http_session": http_session} if http_session else {}
     if plan.voz == "elevenlabs":
         modelo = modelo_eleven()
         if not modelo.startswith("eleven_v4"):  # los v4 no admiten estos ajustes (usan otra API)
             extra["voice_settings"] = elevenlabs.VoiceSettings(**ajustes_eleven())
-        voz = elevenlabs.TTS(model=modelo, language="es", voice_id=voz_eleven(), **extra)
+        voz: tts.TTS = elevenlabs.TTS(model=modelo, language="es", voice_id=voz_eleven(), **extra)
         if modelo.startswith("eleven_v4"):
             # Los v4 en tiempo real cortan la conexión tras 20 s sin texto (lo normal mientras
             # el usuario habla). Frase a frase por HTTP no hay conexión que se pueda caducar.
-            return tts.StreamAdapter(tts=voz)
-        return voz
-    return deepgram.TTS(model=os.getenv("JARVIS_DEEPGRAM_VOICE", "aura-2-alvaro-es"), **extra)
+            voz = tts.StreamAdapter(tts=voz)
+        return tts.FallbackAdapter([voz, voz_de_reserva(http_session)], max_retry_per_tts=0)
+    return voz_de_reserva(http_session)
 
 
 async def responder(cerebro: llm.LLM, jarvis: Jarvis, historial: llm.ChatContext, texto: str) -> str:

@@ -79,11 +79,12 @@ def tipo_de_mensaje(texto: str | None, tiene_voz: bool) -> str | None:
     return "texto"
 
 
-def que_enviar(me_mando_audio: bool, siempre_voz: bool) -> tuple[bool, bool]:
-    """(texto, voz): a un audio se contesta solo con audio; a un texto, con texto (+ voz si /voz)."""
-    if me_mando_audio:
+def que_enviar(me_mando_audio: bool, modo_texto: bool) -> tuple[bool, bool]:
+    """(texto, voz): por defecto SIEMPRE con nota de voz (escribas o hables).
+    Con /voz se pasa a modo texto: a lo escrito se contesta escrito (a un audio, siempre con audio)."""
+    if me_mando_audio or not modo_texto:
         return False, True
-    return True, siempre_voz
+    return True, False
 
 
 # Formatos de botón (y nada más): "llamar:<id>", "cancelar:<id>", "pc:<id>:si|no", "acc:<id>:si|no"
@@ -228,8 +229,8 @@ class JarvisTelegram:
             await self.http.close()
         self.memory.close()
 
-    def siempre_voz(self, chat_id: int) -> bool:
-        return self.memory.get_setting(f"telegram.siempre_voz.{chat_id}", "0") == "1"
+    def modo_texto(self, chat_id: int) -> bool:
+        return self.memory.get_setting(f"telegram.modo_texto.{chat_id}", "0") == "1"
 
     async def pensar(self, chat_id: int, texto: str) -> str:
         historial = self.historiales.setdefault(chat_id, llm.ChatContext())
@@ -368,12 +369,12 @@ class JarvisTelegram:
             )
             return
         if accion == "alternar_voz":
-            nuevo = not self.siempre_voz(msg.chat_id)
-            self.memory.set_setting(f"telegram.siempre_voz.{msg.chat_id}", "1" if nuevo else "0")
+            texto_ahora = not self.modo_texto(msg.chat_id)
+            self.memory.set_setting(f"telegram.modo_texto.{msg.chat_id}", "1" if texto_ahora else "0")
             await msg.reply_text(
-                "A partir de ahora a sus mensajes de texto le contestaré también con una nota de voz. /voz para desactivarlo."
-                if nuevo else
-                "Entendido: solo le contestaré con voz cuando usted me mande un audio. /voz para cambiarlo."
+                "Entendido: a lo que me escriba le contestaré por escrito. /voz para volver a las notas de voz."
+                if texto_ahora else
+                "Hecho: vuelvo a contestarle siempre con nota de voz. /voz para cambiarlo."
             )
             return
 
@@ -391,17 +392,18 @@ class JarvisTelegram:
                 log.info("Nota de voz transcrita: %s", texto)
                 respuesta = await self.pensar(msg.chat_id, texto)
 
-            con_texto, con_voz = que_enviar(accion == "voz", self.siempre_voz(msg.chat_id))
+            con_texto, con_voz = que_enviar(accion == "voz", self.modo_texto(msg.chat_id))
             if con_texto:
                 await msg.reply_text(respuesta)
             if con_voz:
                 await context.bot.send_chat_action(msg.chat_id, ChatAction.RECORD_VOICE)
                 try:
                     await msg.reply_voice(voice=await self.hablar(respuesta))
-                except Exception:
+                except Exception as e:  # ni la voz principal ni la de reserva: entonces por escrito, diciendo por qué
                     log.exception("No pude generar la nota de voz")
-                    if not con_texto:  # que la respuesta no se pierda
-                        await msg.reply_text(respuesta)
+                    if not con_texto:
+                        await msg.reply_text(f"{respuesta}\n\n(Te lo escribo porque no he podido generar el audio: "
+                                             f"{type(e).__name__}.)")
         except Exception as e:
             log.exception("Error atendiendo un mensaje")
             if "429" in str(e) or "rate limit" in str(e).lower():
