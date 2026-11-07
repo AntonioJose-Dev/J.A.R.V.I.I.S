@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- JARVIS Companion: pulsa "Enviar" en WhatsApp SOLO para el mensaje exacto que JARVIS ha ordenado
+     (orden firmada con un secreto y de hace menos de 60 segundos). Base de la futura app "Oye Jarvis". -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.jarvis.companion"
+    android:versionCode="1"
+    android:versionName="1.0">
+
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+
+    <application
+        android:label="JARVIS"
+        android:allowBackup="false"
+        android:icon="@android:drawable/ic_btn_speak_now">
+
+        <activity android:name=".Inicio" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Recibe las órdenes del agente de JARVIS (Termux). Solo valen si llevan la firma correcta. -->
+        <receiver android:name=".Receptor" android:exported="true">
+            <intent-filter>
+                <action android:name="com.jarvis.companion.ENVIAR" />
+                <action android:name="com.jarvis.companion.CONFIGURAR" />
+            </intent-filter>
+        </receiver>
+
+        <service
+            android:name=".Accesibilidad"
+            android:exported="true"
+            android:label="JARVIS: enviar WhatsApp"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accesibilidad" />
+        </service>
+    </application>
+</manifest>

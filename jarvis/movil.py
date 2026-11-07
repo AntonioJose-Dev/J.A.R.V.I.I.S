@@ -247,7 +247,9 @@ def ejecutar_accion(datos: dict) -> str:
         # En casa (ADB) se pulsa "enviar" solo; fuera, se deja escrito y lo envías tú
         if dispositivos_seguro():
             return _mensaje_por_adb(datos)
-        agente("whatsapp", json.dumps({"numero": datos["numero"], "texto": datos["texto"]}))
+        r = agente("whatsapp", json.dumps({"numero": datos["numero"], "texto": datos["texto"]}))
+        if r.get("automatico"):
+            return "WhatsApp enviado (lo ha pulsado la app JARVIS de tu móvil)."
         return "Te he dejado el WhatsApp escrito en el móvil: solo tienes que pulsar enviar."
     if agente_configurado():
         agente("sms", json.dumps({"numero": datos["numero"], "texto": datos["texto"]}))

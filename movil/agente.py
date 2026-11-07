@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PUERTO = int(os.environ.get("JARVIS_MOVIL_PUERTO", "8765"))
 RUTA_TOKEN = os.path.expanduser("~/.jarvis_token")
-VERSION = "8"
+VERSION = "9"
 
 
 def ejecutar(cmd: list[str], timeout: float = 30) -> str:
@@ -171,13 +171,44 @@ def sms(v: str) -> dict:
     return {"ok": True}
 
 
+RUTA_COMPANION = os.path.expanduser("~/.jarvis_companion")
+COMPONENTE = "com.jarvis.companion/.Receptor"
+
+
+def _difundir(accion: str, extras: dict[str, str]) -> bool:
+    """`am broadcast` a la app JARVIS; devuelve True si la app aceptó (result=1)."""
+    cmd = ["am", "broadcast", "-a", f"com.jarvis.companion.{accion}", "-n", COMPONENTE]
+    for k, v in extras.items():
+        cmd += ["--es", k, v]
+    return "result=1" in ejecutar(cmd)
+
+
+def companion_configurar(_v: str) -> dict:
+    """Conecta el agente con la app JARVIS (una sola vez): comparten un secreto para firmar las órdenes."""
+    import secrets as _secrets
+
+    secreto = _secrets.token_hex(32)
+    if not _difundir("CONFIGURAR", {"secreto": secreto}):
+        raise RuntimeError("la app JARVIS no está instalada o ya estaba conectada (borra sus datos para repetir)")
+    with open(RUTA_COMPANION, "w", encoding="utf-8") as f:
+        f.write(secreto)
+    os.chmod(RUTA_COMPANION, 0o600)
+    return {"ok": True}
+
+
 def whatsapp(v: str) -> dict:
-    """Abre el chat con el texto escrito (fuera de casa no se puede pulsar 'enviar' automáticamente)."""
+    """Abre el chat con el texto escrito y, si está la app JARVIS, le ordena (firmado) que pulse Enviar."""
     from urllib.parse import quote
 
     d = json.loads(v)
+    automatico = False
+    if os.path.exists(RUTA_COMPANION):
+        secreto = open(RUTA_COMPANION, encoding="utf-8").read().strip()
+        marca = str(int(time.time() * 1000))
+        firma = hmac.new(secreto.encode(), f"{marca}\n{d['texto']}".encode(), "sha256").hexdigest()
+        automatico = _difundir("ENVIAR", {"texto": d["texto"], "marca": marca, "firma": firma})
     ejecutar(["termux-open-url", f"https://wa.me/{d['numero'].lstrip('+')}?text={quote(d['texto'])}"])
-    return {"ok": True, "pendiente_enviar": True}
+    return {"ok": True, "automatico": automatico}
 
 
 def foto(v: str) -> dict:
@@ -248,6 +279,7 @@ def diagnostico(_v: str) -> dict:
 
 ACCIONES = {
     "cambiar_token": cambiar_token, "actualizar": actualizar, "diagnostico": diagnostico,
+    "companion_configurar": companion_configurar,
     "estado": estado, "ubicacion": ubicacion, "notificaciones": notificaciones, "linterna": linterna,
     "volumen": volumen, "sonar": sonar, "hablar": hablar, "vibrar": vibrar, "alarma": alarma,
     "temporizador": temporizador, "abrir_web": abrir_web, "abrir_app": abrir_app, "paquetes": paquetes,

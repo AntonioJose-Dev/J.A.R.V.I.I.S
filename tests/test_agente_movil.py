@@ -63,6 +63,37 @@ def test_error_de_una_accion_vuelve_al_pc(monkeypatch):
     assert codigo == 500 and "sin GPS" in r["error"]
 
 
+def test_whatsapp_firma_la_orden_para_la_app(tmp_path, monkeypatch):
+    import hashlib
+    import hmac as _hmac
+
+    secreto = "s" * 64
+    ruta = tmp_path / "companion"
+    ruta.write_text(secreto)
+    monkeypatch.setattr(agente, "RUTA_COMPANION", str(ruta))
+    comandos = []
+
+    def ejecutar(cmd, timeout=30):
+        comandos.append(cmd)
+        return "Broadcast completed: result=1" if cmd[:2] == ["am", "broadcast"] else ""
+    monkeypatch.setattr(agente, "ejecutar", ejecutar)
+    r = agente.whatsapp(json.dumps({"numero": "+34600123456", "texto": "Llego a las 8"}))
+    assert r == {"ok": True, "automatico": True}
+    orden = comandos[0]
+    extras = dict(zip(orden[orden.index("--es") + 1::3], orden[orden.index("--es") + 2::3]))
+    assert extras["texto"] == "Llego a las 8"
+    # La misma firma que comprueba la app (Orden.java): HMAC-SHA256(secreto, marca + "\n" + texto) en hex
+    esperada = _hmac.new(secreto.encode(), f"{extras['marca']}\nLlego a las 8".encode(), hashlib.sha256).hexdigest()
+    assert extras["firma"] == esperada
+    assert comandos[1][0] == "termux-open-url" and "wa.me/34600123456" in comandos[1][1]
+
+
+def test_whatsapp_sin_app_solo_lo_deja_escrito(tmp_path, monkeypatch):
+    monkeypatch.setattr(agente, "RUTA_COMPANION", str(tmp_path / "no_existe"))
+    monkeypatch.setattr(agente, "ejecutar", lambda cmd, timeout=30: "")
+    assert agente.whatsapp(json.dumps({"numero": "+34600123456", "texto": "hola"})) == {"ok": True, "automatico": False}
+
+
 def test_sms_usa_termux_sms_send_con_argumentos_separados(monkeypatch):
     ejecutados = []
     monkeypatch.setattr(agente, "ejecutar", lambda cmd, timeout=30: ejecutados.append(cmd) or "")

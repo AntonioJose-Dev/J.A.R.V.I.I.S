@@ -9,3 +9,4 @@ pruebas_audio/
 *.log
 pc_comandos.json
 logs/
+build/

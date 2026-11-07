@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="descripcion">Permite que JARVIS pulse «Enviar» en WhatsApp cuando tú le has confirmado un mensaje. Solo actúa con órdenes firmadas por JARVIS de hace menos de un minuto, y solo si el texto escrito es exactamente el que confirmaste. No lee ni guarda tus chats.</string>
+</resources>
