@@ -37,7 +37,7 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from . import telefono
 from .config import elegir_plan
-from .core import KEYTERMS, OWNER, crear_cerebro, crear_voz, nota_de_hora
+from .core import KEYTERMS, OWNER, crear_cerebro, crear_voz, describir_voz, nota_de_hora
 from .memory import MemoryStore
 from .prompts import prompt_buzon, prompt_llamada
 
@@ -116,6 +116,7 @@ async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
 
     plan = elegir_plan(os.environ)
+    log.info("Llamada %s: %s; %s", datos["id"], plan.describir(), describir_voz(plan))
     agente = AgenteLlamada(datos["nombre"], datos["mensaje"])
     session = AgentSession(
         vad=silero.VAD.load(),
@@ -189,7 +190,11 @@ async def entrypoint(ctx: JobContext) -> None:
         await ctx.delete_room()
 
     tarea = asyncio.create_task(limite())
-    ctx.add_shutdown_callback(lambda: tarea.cancel())
+
+    async def cancelar_limite() -> None:
+        tarea.cancel()
+
+    ctx.add_shutdown_callback(cancelar_limite)
 
 
 def main() -> None:

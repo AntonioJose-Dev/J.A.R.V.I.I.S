@@ -31,14 +31,12 @@ from . import telefono
 from .config import elegir_plan
 from .core import (
     KEYTERMS,
-    MODELO_ELEVEN_NOTAS,
     Jarvis,
-    ajustes_eleven,
     crear_cerebro,
     crear_voz,
+    describir_voz,
     limpiar_para_voz,
     responder,
-    voz_eleven,
 )
 from .memory import MemoryStore
 
@@ -151,27 +149,6 @@ def audio_a_ogg_opus(audio: bytes) -> bytes:
     return pcm_a_ogg_opus(pcm, 48000, 1)
 
 
-async def sintetizar_eleven_notas(texto: str) -> bytes:
-    """Nota de voz con el modelo más realista de ElevenLabs (no hace falta streaming)."""
-    modelo = os.getenv("ELEVEN_MODEL_NOTAS", "").strip() or MODELO_ELEVEN_NOTAS
-    async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.post(
-            f"https://api.elevenlabs.io/v1/text-to-speech/{voz_eleven()}",
-            params={"output_format": "mp3_44100_128"},
-            headers={"xi-api-key": os.getenv("ELEVEN_API_KEY", "").strip()},
-            json={
-                "text": texto,
-                "model_id": modelo,
-                "language_code": "es",
-                "apply_text_normalization": "on",
-                "voice_settings": ajustes_eleven(),
-            },
-        )
-    if r.status_code != 200:
-        raise RuntimeError(f"ElevenLabs {r.status_code}: {r.text[:200]}")
-    return r.content
-
-
 async def transcribir(audio: bytes, mime: str, key: str) -> str:
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(
@@ -199,7 +176,8 @@ class JarvisTelegram:
     async def iniciar(self, app: Application) -> None:
         self.http = aiohttp.ClientSession()
         me = await app.bot.get_me()
-        log.info("Bot @%s listo (%s). Usuarios permitidos: %d", me.username, self.plan.describir(), len(self.permitidos))
+        log.info("Bot @%s listo (%s; %s). Usuarios permitidos: %d",
+                 me.username, self.plan.describir(), describir_voz(self.plan), len(self.permitidos))
         if not self.permitidos:
             log.warning("TELEGRAM_ALLOWED_IDS está vacío: escribe /id al bot y pon tu número en .env")
 
@@ -221,9 +199,7 @@ class JarvisTelegram:
 
     async def hablar(self, texto: str) -> bytes:
         texto = limpiar_para_voz(texto)
-        if self.plan.voz == "elevenlabs":
-            return audio_a_ogg_opus(await sintetizar_eleven_notas(texto))
-        voz = crear_voz(self.plan, self.http)
+        voz = crear_voz(self.plan, self.http)  # la misma voz que en las llamadas y en el PC
         frames = [ev.frame async for ev in voz.synthesize(texto)]
         pcm = b"".join(bytes(f.data) for f in frames)
         return pcm_a_ogg_opus(pcm, frames[0].sample_rate, frames[0].num_channels)

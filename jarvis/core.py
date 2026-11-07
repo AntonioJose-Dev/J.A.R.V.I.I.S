@@ -151,13 +151,23 @@ def crear_cerebro(plan: Plan) -> llm.LLM:
 
 # ElevenLabs: voz por defecto (la del plugin) hasta que se elija una con ELEVEN_VOICE_ID
 VOZ_ELEVEN_POR_DEFECTO = "hpp4J3VqNfWAUOO0d1Us"
-# Voz en directo: prima la rapidez. Notas de voz de Telegram: prima el realismo.
-MODELO_ELEVEN_VIVO = "eleven_flash_v2_5"
-MODELO_ELEVEN_NOTAS = "eleven_v4"
+# Un solo modelo para todo (llamadas, voz del PC y notas de Telegram), para que JARVIS suene
+# exactamente igual en todas partes. eleven_v4_turbo: familia v4 (la más realista) y tan rápida como flash.
+MODELO_ELEVEN = "eleven_v4_turbo"
 
 
 def voz_eleven() -> str:
     return os.getenv("ELEVEN_VOICE_ID", "").strip() or VOZ_ELEVEN_POR_DEFECTO
+
+
+def modelo_eleven() -> str:
+    return os.getenv("ELEVEN_MODEL", "").strip() or MODELO_ELEVEN
+
+
+def describir_voz(plan: Plan) -> str:
+    if plan.voz == "elevenlabs":
+        return f"ElevenLabs voz={voz_eleven()} modelo={modelo_eleven()}"
+    return f"Deepgram {os.getenv('JARVIS_DEEPGRAM_VOICE', 'aura-2-alvaro-es')}"
 
 
 def ajustes_eleven() -> dict:
@@ -188,16 +198,13 @@ def limpiar_para_voz(texto: str) -> str:
 
 
 def crear_voz(plan: Plan, http_session: aiohttp.ClientSession | None = None) -> tts.TTS:
-    """Voz para el agente en directo (streaming, baja latencia)."""
+    """La voz de JARVIS. Es la misma para llamadas, voz del PC y notas de voz de Telegram."""
     extra = {"http_session": http_session} if http_session else {}
     if plan.voz == "elevenlabs":
-        return elevenlabs.TTS(
-            model=os.getenv("ELEVEN_MODEL_VIVO", "").strip() or MODELO_ELEVEN_VIVO,
-            language="es",
-            voice_id=voz_eleven(),
-            voice_settings=elevenlabs.VoiceSettings(**ajustes_eleven()),
-            **extra,
-        )
+        modelo = modelo_eleven()
+        if not modelo.startswith("eleven_v4"):  # los v4 no admiten estos ajustes (usan otra API)
+            extra["voice_settings"] = elevenlabs.VoiceSettings(**ajustes_eleven())
+        return elevenlabs.TTS(model=modelo, language="es", voice_id=voz_eleven(), **extra)
     return deepgram.TTS(model=os.getenv("JARVIS_DEEPGRAM_VOICE", "aura-2-alvaro-es"), **extra)
 
 

@@ -16,7 +16,7 @@ from livekit.plugins import deepgram, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from .config import elegir_plan
-from .core import KEYTERMS, MAX_TOOL_STEPS, OWNER, Jarvis, crear_cerebro, crear_voz, log
+from .core import KEYTERMS, MAX_TOOL_STEPS, OWNER, Jarvis, crear_cerebro, crear_voz, describir_voz, log
 from .memory import MemoryStore
 
 
@@ -28,7 +28,7 @@ def _mcp_servers() -> list[mcp.MCPServer]:
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
     plan = elegir_plan(os.environ)
-    log.info("JARVIS arranca con %s", plan.describir())
+    log.info("JARVIS arranca con %s; %s", plan.describir(), describir_voz(plan))
     memory = MemoryStore(os.getenv("JARVIS_MEMORY_PATH", "jarvis_memoria.db"))
 
     session = AgentSession(

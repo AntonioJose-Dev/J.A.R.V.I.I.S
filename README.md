@@ -108,8 +108,8 @@ con un máximo de 3 minutos (`JARVIS_LLAMADA_MAX_SEGUNDOS`), y no promete ni ace
 
 ## La voz
 
-- **En directo** (`jarvis.agent`): `ELEVEN_MODEL_VIVO` (por defecto `eleven_flash_v2_5`, el más rápido).
-- **Notas de voz de Telegram**: `ELEVEN_MODEL_NOTAS` (por defecto `eleven_v4`, el más realista).
+- JARVIS usa **la misma voz y el mismo modelo** en llamadas, voz del PC y notas de Telegram: `ELEVEN_MODEL`,
+  por defecto `eleven_v4_turbo` (familia v4, la más realista, y tan rápido como flash: ~0,3 s hasta el primer audio).
 - La voz se elige con `ELEVEN_VOICE_ID`; `ELEVEN_STABILITY`, `ELEVEN_SIMILARITY` y `ELEVEN_STYLE` ajustan la naturalidad.
 - Antes de hablar se limpia el texto (sin markdown, emojis ni enlaces; horas dichas como "13 y 45").
 - Con el plan gratuito de ElevenLabs solo se pueden usar por API las voces incluidas en la cuenta.
