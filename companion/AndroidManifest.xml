@@ -3,8 +3,8 @@
      (orden firmada con un secreto y de hace menos de 60 segundos). Base de la futura app "Oye Jarvis". -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.jarvis.companion"
-    android:versionCode="4"
-    android:versionName="1.3">
+    android:versionCode="5"
+    android:versionName="1.4">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
     <!-- Solo para avisar al agente de JARVIS en este mismo móvil (127.0.0.1); no sale a internet -->
@@ -23,14 +23,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Recibe las órdenes del agente de JARVIS (Termux). Solo valen si llevan la firma correcta. -->
-        <receiver android:name=".Receptor" android:exported="true">
-            <intent-filter>
-                <action android:name="com.jarvis.companion.ENVIAR" />
-                <action android:name="com.jarvis.companion.CONFIGURAR" />
-                <action android:name="com.jarvis.companion.ESTADO" />
-            </intent-filter>
-        </receiver>
+        <!-- Ya no hay receptor de mensajes de Android: la app solo pide órdenes al agente de JARVIS (127.0.0.1) -->
 
         <service
             android:name=".Accesibilidad"

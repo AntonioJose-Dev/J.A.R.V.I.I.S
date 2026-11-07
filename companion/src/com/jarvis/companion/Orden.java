@@ -31,20 +31,21 @@ final class Orden {
         return c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
+    /** Conectada = tiene secreto Y el agente de JARVIS lo dio por bueno (los secretos de versiones viejas no valen). */
     static boolean configurada(Context c) {
-        return prefs(c).getString("secreto", null) != null;
+        return prefs(c).getString("secreto", null) != null && prefs(c).getBoolean("confirmada", false);
     }
 
-    /** El secreto se fija una sola vez (desde el agente de JARVIS). Para cambiarlo, borrar datos de la app. */
+    /** Guarda el secreto que ha dado el agente al emparejar (sustituye a cualquiera anterior). */
     static synchronized boolean configurar(Context c, String secreto) {
-        if (secreto == null || secreto.length() < 32 || configurada(c)) return false;
-        prefs(c).edit().putString("secreto", secreto).apply();
+        if (secreto == null || secreto.length() < 32) return false;
+        prefs(c).edit().putString("secreto", secreto).putBoolean("confirmada", true).remove("ultima_marca").apply();
         return true;
     }
 
     /** Botón "Reconectar con JARVIS": olvida el secreto para poder emparejar de nuevo. */
     static synchronized void olvidar(Context c) {
-        prefs(c).edit().remove("secreto").remove("ultima_marca").apply();
+        prefs(c).edit().remove("secreto").remove("confirmada").remove("ultima_marca").apply();
         texto = null;
     }
 

@@ -73,7 +73,13 @@ final class Agente {
         long ts = System.currentTimeMillis();
         String firma = Orden.hmac(secreto, "orden\n" + ts);
         Object[] r = post("/orden", "{\"ts\":\"" + ts + "\",\"firma\":\"" + firma + "\"}");
-        if ((int) r[0] != 200) return false;
+        int codigo = (int) r[0];
+        if (codigo == 401 || codigo == 403) {  // el agente no reconoce este secreto: olvidarlo y volver a emparejar
+            Orden.olvidar(c);
+            Orden.registrar(c, "secreto antiguo: me vuelvo a conectar");
+            return false;
+        }
+        if (codigo != 200) return false;
         try {
             JSONObject o = new JSONObject((String) r[1]);
             return Orden.recibir(c, o.getString("texto"), Long.parseLong(o.getString("marca")), o.getString("firma"));

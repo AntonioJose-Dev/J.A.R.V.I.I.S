@@ -21,7 +21,17 @@ public class Accesibilidad extends AccessibilityService {
     private volatile long ultimaPregunta = 0;
 
     @Override
+    protected void onServiceConnected() {
+        super.onServiceConnected();
+        Inicio.emparejarSiHaceFalta(this, null);  // al activar el permiso (o al reiniciar el móvil)
+    }
+
+    @Override
     public void onAccessibilityEvent(AccessibilityEvent e) {
+        if (!Orden.configurada(this)) {
+            Inicio.emparejarSiHaceFalta(this, null);
+            return;
+        }
         if (Orden.pendiente(false) != null) {
             intentarEnviar();
             return;

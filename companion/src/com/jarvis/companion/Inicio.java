@@ -37,7 +37,7 @@ public class Inicio extends Activity {
             new Thread(() -> {
                 String r = Agente.emparejar(this);
                 Orden.registrar(this, "ok".equals(r) ? "conectada con JARVIS" : "no se pudo conectar: " + r);
-                runOnUiThread(this::onResume);
+                runOnUiThread(this::pintarEstado);
             }).start();
         });
         l.addView(titulo);
@@ -47,9 +47,32 @@ public class Inicio extends Activity {
         setContentView(l);
     }
 
+    private static volatile boolean emparejando = false;
+
+    /** Se conecta sola con JARVIS si todavía no lo está (sin tocar ningún botón). */
+    private static volatile long ultimoIntento = 0;
+
+    static void emparejarSiHaceFalta(android.content.Context c, Runnable alTerminar) {
+        long ahora = System.currentTimeMillis();
+        if (Orden.configurada(c) || emparejando || ahora - ultimoIntento < 10_000) return;
+        ultimoIntento = ahora;
+        emparejando = true;
+        new Thread(() -> {
+            String r = Agente.emparejar(c);
+            Orden.registrar(c, "ok".equals(r) ? "conectada con JARVIS" : "no se pudo conectar: " + r);
+            emparejando = false;
+            if (alTerminar != null) alTerminar.run();
+        }).start();
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
+        emparejarSiHaceFalta(this, () -> runOnUiThread(this::pintarEstado));
+        pintarEstado();
+    }
+
+    private void pintarEstado() {
         String activos = Settings.Secure.getString(getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
         boolean permiso = activos != null && activos.contains(getPackageName());
         String ultimo = Orden.prefs(this).getString("ultimo", "nada todavía");
