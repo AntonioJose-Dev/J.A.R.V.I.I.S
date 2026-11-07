@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PUERTO = int(os.environ.get("JARVIS_MOVIL_PUERTO", "8765"))
 RUTA_TOKEN = os.path.expanduser("~/.jarvis_token")
-VERSION = "3"
+VERSION = "4"
 
 
 def ejecutar(cmd: list[str], timeout: float = 30) -> str:
@@ -217,8 +217,26 @@ def actualizar(_v: str) -> dict:
     return {"ok": True, "reiniciando": True}
 
 
+def diagnostico(_v: str) -> dict:
+    """Prueba los comandos de Termux:API que más fallan y devuelve solo códigos y errores (no el contenido)."""
+    salida = {}
+    for nombre, cmd, tiempo in (
+        ("notificaciones", ["termux-notification-list"], 25),
+        ("ubicacion_red", ["termux-location", "-p", "network", "-r", "last"], 25),
+        ("ubicacion_gps", ["termux-location", "-p", "gps", "-r", "once"], 45),
+    ):
+        t0 = time.time()
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=tiempo)
+            salida[nombre] = {"codigo": r.returncode, "bytes": len(r.stdout), "error": r.stderr.strip()[:200],
+                              "empieza": r.stdout.strip()[:1], "segundos": round(time.time() - t0, 1)}
+        except subprocess.TimeoutExpired:
+            salida[nombre] = {"timeout": tiempo}
+    return salida
+
+
 ACCIONES = {
-    "cambiar_token": cambiar_token, "actualizar": actualizar,
+    "cambiar_token": cambiar_token, "actualizar": actualizar, "diagnostico": diagnostico,
     "estado": estado, "ubicacion": ubicacion, "notificaciones": notificaciones, "linterna": linterna,
     "volumen": volumen, "sonar": sonar, "hablar": hablar, "vibrar": vibrar, "alarma": alarma,
     "temporizador": temporizador, "abrir_web": abrir_web, "abrir_app": abrir_app, "paquetes": paquetes,
