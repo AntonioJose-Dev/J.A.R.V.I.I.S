@@ -12,7 +12,10 @@ echo "== Descargando el agente de JARVIS =="
 mkdir -p ~/jarvis ~/.termux/boot
 curl -fsSL "$REPO/agente.py" -o ~/jarvis/agente.py
 
-if [ ! -s ~/.jarvis_token ]; then
+if [ -n "$JARVIS_TOKEN" ]; then
+  printf '%s' "$JARVIS_TOKEN" | tr -d ' -' > ~/.jarvis_token
+  chmod 600 ~/.jarvis_token
+elif [ ! -s ~/.jarvis_token ]; then
   echo
   echo "Escribe el código secreto que te ha dado el PC (scripts/configurar_movil.py):"
   read -r TOKEN < /dev/tty
