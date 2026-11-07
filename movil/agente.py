@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PUERTO = int(os.environ.get("JARVIS_MOVIL_PUERTO", "8765"))
 RUTA_TOKEN = os.path.expanduser("~/.jarvis_token")
-VERSION = "2"
+VERSION = "3"
 
 
 def ejecutar(cmd: list[str], timeout: float = 30) -> str:
@@ -59,12 +59,16 @@ def ubicacion(_v: str) -> dict:
         except Exception:
             continue
     if not loc or not loc.get("latitude"):
-        raise RuntimeError("sin ubicación (¿GPS desactivado?)")
+        raise RuntimeError("sin ubicación: activa la ubicación del móvil y da a Termux:API el permiso "
+                           "de Ubicación 'Permitir siempre' (Ajustes > Aplicaciones > Termux:API > Permisos)")
     return {"lat": loc["latitude"], "lon": loc["longitude"], "precision": loc.get("accuracy")}
 
 
 def notificaciones(_v: str) -> dict:
-    lista = json_de(["termux-notification-list"]) or []
+    try:
+        lista = json_de(["termux-notification-list"], timeout=20) or []
+    except (ValueError, RuntimeError, subprocess.TimeoutExpired):
+        raise RuntimeError("falta permiso: Ajustes > Notificaciones > Acceso a notificaciones > activar Termux:API")
     vistas, salida = set(), []
     for n in lista:
         clave = (n.get("packageName"), n.get("title"), n.get("content"))
