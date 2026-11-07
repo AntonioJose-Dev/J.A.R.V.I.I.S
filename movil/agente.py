@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PUERTO = int(os.environ.get("JARVIS_MOVIL_PUERTO", "8765"))
 RUTA_TOKEN = os.path.expanduser("~/.jarvis_token")
-VERSION = "5"
+VERSION = "6"
 
 
 def ejecutar(cmd: list[str], timeout: float = 30) -> str:
@@ -34,6 +34,9 @@ def ejecutar(cmd: list[str], timeout: float = 30) -> str:
 
 def json_de(cmd: list[str], timeout: float = 30):
     salida = ejecutar(cmd, timeout)
+    if "not yet available on Google Play" in salida:
+        raise RuntimeError("tu Termux es el de Google Play y no admite Termux:API: desinstálalo e instala "
+                           "Termux, Termux:API y Termux:Boot desde F-Droid")
     return json.loads(salida) if salida else None
 
 
