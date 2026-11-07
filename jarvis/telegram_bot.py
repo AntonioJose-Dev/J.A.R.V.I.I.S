@@ -27,7 +27,7 @@ from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
-from . import pc, telefono
+from . import movil, pc, telefono
 
 from .config import elegir_plan
 from .core import (
@@ -284,7 +284,8 @@ class JarvisTelegram:
             return
         await q.edit_message_text(f"⏳ Haciendo: {desc}…")
         try:
-            resultado = await asyncio.to_thread(pc.ejecutar_accion, accion["datos"])
+            ejecutor = movil.ejecutar_accion if accion["tipo"] == "movil" else pc.ejecutar_accion
+            resultado = await asyncio.to_thread(ejecutor, accion["datos"])
             self.memory.set_action_status(accion_id, "hecha")
             await q.edit_message_text(f"✅ {desc}\n{resultado}")
         except Exception as e:
@@ -371,7 +372,7 @@ def main() -> None:
     print(f"JARVIS en Telegram: {bot.plan.describir()}. Ctrl+C para parar.")
     app = Application.builder().token(token).post_init(bot.iniciar).post_shutdown(bot.cerrar).build()
     app.add_handler(CallbackQueryHandler(bot.boton_llamada, pattern=r"^(llamar|cancelar):"))
-    app.add_handler(CallbackQueryHandler(bot.boton_accion, pattern=r"^pc:"))
+    app.add_handler(CallbackQueryHandler(bot.boton_accion, pattern=r"^(pc|acc):"))
     app.add_handler(MessageHandler(filters.ALL, bot.manejar))
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 

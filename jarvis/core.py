@@ -20,6 +20,7 @@ from livekit.agents import Agent, RunContext, function_tool, llm, tts
 from livekit.plugins import anthropic, deepgram, elevenlabs, openai
 
 from . import telefono
+from .movil import ControlMovil
 from .pc import ControlPC
 from .config import Plan
 from .memory import MemoryStore
@@ -52,7 +53,7 @@ def nota_de_hora(now: datetime | None = None) -> str:
     )
 
 
-class Jarvis(ControlPC, Agent):
+class Jarvis(ControlPC, ControlMovil, Agent):
     def __init__(
         self,
         memory: MemoryStore,
@@ -136,10 +137,10 @@ class Jarvis(ControlPC, Agent):
         turn_ctx.add_message(role="system", content=nota_de_hora())
 
 
-def crear_cerebro(plan: Plan) -> llm.LLM:
-    if plan.cerebro == "claude":
+def _un_cerebro(nombre: str) -> llm.LLM:
+    if nombre == "claude":
         return anthropic.LLM(model=os.getenv("JARVIS_MODEL", "claude-sonnet-5-5"), caching="ephemeral")
-    if plan.cerebro == "groq":
+    if nombre == "groq":
         return openai.LLM(
             model=os.getenv("JARVIS_GROQ_MODEL", "openai/gpt-oss-120b"),
             base_url="https://api.groq.com/openai/v1",
@@ -150,6 +151,21 @@ def crear_cerebro(plan: Plan) -> llm.LLM:
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
         api_key=os.environ["GEMINI_API_KEY"].strip(),
     )
+
+
+def cerebros_disponibles(plan: Plan, env=os.environ) -> list[str]:
+    """El elegido primero y, de reserva, los demás que tengan clave (por si se agota el límite gratuito)."""
+    claves = {"claude": "ANTHROPIC_API_KEY", "groq": "GROQ_API_KEY", "gemini": "GEMINI_API_KEY"}
+    reserva = [c for c in ("claude", "groq", "gemini") if c != plan.cerebro and env.get(claves[c], "").strip()]
+    return [plan.cerebro] + reserva
+
+
+def crear_cerebro(plan: Plan) -> llm.LLM:
+    nombres = cerebros_disponibles(plan)
+    if len(nombres) == 1:
+        return _un_cerebro(nombres[0])
+    # Si el primero falla (p. ej. límite por minuto de Groq), sigue con el siguiente sin cortar la conversación
+    return llm.FallbackAdapter([_un_cerebro(n) for n in nombres], attempt_timeout=15.0)
 
 
 # ElevenLabs: voz por defecto (la del plugin) hasta que se elija una con ELEVEN_VOICE_ID
@@ -221,7 +237,8 @@ async def responder(cerebro: llm.LLM, jarvis: Jarvis, historial: llm.ChatContext
     historial.add_message(role="user", content=texto)
     herramientas = {t.info.name: t for t in jarvis.tools}
     respuesta = ""
-    for _ in range(MAX_TOOL_STEPS):
+    reintentado = False
+    for _ in range(MAX_TOOL_STEPS + 1):
         ctx = historial.copy()
         ctx.items.insert(0, llm.ChatMessage(role="system", content=[jarvis.instructions, nota_de_hora()]))
         respuesta, llamadas = "", []
@@ -230,6 +247,9 @@ async def responder(cerebro: llm.LLM, jarvis: Jarvis, historial: llm.ChatContext
                 if chunk.delta:
                     respuesta += chunk.delta.content or ""
                     llamadas += chunk.delta.tool_calls or []
+        if not llamadas and not respuesta.strip() and not reintentado:
+            reintentado = True  # a veces el modelo devuelve una respuesta vacía: un reintento basta
+            continue
         if not llamadas:
             break
         for c in llamadas:

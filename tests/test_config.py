@@ -39,6 +39,15 @@ def test_modo_completo_exige_claves():
         elegir_plan({"JARVIS_MODO": "completo", "ANTHROPIC_API_KEY": "x"})
 
 
+def test_cerebros_de_reserva():
+    from jarvis.core import cerebros_disponibles
+
+    assert cerebros_disponibles(Plan("groq", "deepgram"), {"GROQ_API_KEY": "g"}) == ["groq"]
+    assert cerebros_disponibles(Plan("groq", "deepgram"), {"GROQ_API_KEY": "g", "GEMINI_API_KEY": "m"}) == ["groq", "gemini"]
+    assert cerebros_disponibles(Plan("claude", "deepgram"),
+                                {"ANTHROPIC_API_KEY": "a", "GROQ_API_KEY": "g"}) == ["claude", "groq"]
+
+
 def test_modo_desconocido_falla():
     with pytest.raises(ValueError):
         elegir_plan({**GROQ, "JARVIS_MODO": "turbo"})

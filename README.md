@@ -122,6 +122,21 @@ papelera, escribir texto en la ventana activa y ejecutar comandos. Solo ejecuta 
 se cambian con `JARVIS_CARPETAS`), no obedece instrucciones escritas dentro de archivos o webs, y apunta todo lo que hace
 en `jarvis_acciones.log`.
 
+## Control del móvil (Android)
+
+JARVIS controla tu Android por Wi-Fi desde el PC (ADB inalámbrico, Android 11+). El móvil y el PC tienen que estar
+en la misma Wi-Fi.
+
+**Emparejar (una vez):** activa las *Opciones para desarrolladores* (toca 7 veces "Número de compilación"),
+activa *Depuración inalámbrica* → *Vincular dispositivo con código* y ejecuta:
+```bash
+python scripts/emparejar_movil.py
+```
+
+**Lo hace directamente:** batería y estado, notificaciones, ubicación, abrir apps y webs, alarmas y temporizadores,
+volumen y música, hacerlo sonar para encontrarlo y mandarte su pantalla por Telegram.
+**Con botón de confirmación en Telegram:** mandar WhatsApp o SMS en tu nombre.
+
 ## La voz
 
 - JARVIS usa **la misma voz y el mismo modelo** en llamadas, voz del PC y notas de Telegram: `ELEVEN_MODEL`,
