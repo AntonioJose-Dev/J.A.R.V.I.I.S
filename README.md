@@ -79,18 +79,20 @@ con un máximo de 3 minutos (`JARVIS_LLAMADA_MAX_SEGUNDOS`), y no promete ni ace
 ### Configurarlo (una sola vez)
 
 **Telnyx** (la línea telefónica), en [portal.telnyx.com](https://portal.telnyx.com):
-1. Crea la cuenta y añade saldo (*Billing*).
-2. *Numbers → Search & Buy*: compra un número. Los españoles (+34) piden un justificante de dirección (*Requirements*).
+1. Crea la cuenta y actívala (*Upgrade*). Para seguir llamando cuando acabe el saldo de prueba, añade saldo (*Add credit*).
+2. El número que verá quien recibe la llamada (elige una):
+   - **Tu propio móvil** (gratis): *Voice Suite → Verified Numbers → Verify Number*. Verá tu número y te podrá devolver la llamada.
+   - **Un número de Telnyx**: *Numbers → Search & Buy*. Los españoles (+34) piden un justificante de dirección.
 3. *Voice → Outbound Voice Profiles → Add*: crea un perfil y permite llamar a España/UE.
 4. *Voice → SIP Trunking → Create*: tipo **Credentials**. Apunta el usuario y la contraseña.
-   En la pestaña *Outbound* asígnale el perfil del paso 3, y en *Numbers* asígnale tu número.
+   En la pestaña *Outbound* asígnale el perfil del paso 3 (y, si compraste número, asígnaselo en *Numbers*).
 
 **LiveKit Cloud** (conecta la llamada con JARVIS), en [cloud.livekit.io](https://cloud.livekit.io):
 5. Crea un proyecto (plan gratuito). En *Settings → Keys* copia la URL (`wss://...livekit.cloud`), la API key y el secret.
 
 **En `.env`**:
 6. Pon `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` (los de LiveKit Cloud), `TELNYX_SIP_USUARIO`,
-   `TELNYX_SIP_CLAVE` y `JARVIS_CALLER_ID` (tu número de Telnyx, p. ej. `+34910000000`).
+   `TELNYX_SIP_CLAVE` y `JARVIS_CALLER_ID` (el número del paso 2, p. ej. `+34600000000`).
 7. Crea la conexión entre LiveKit y Telnyx y copia el ID que te da en `LIVEKIT_SIP_TRUNK_ID`:
    ```bash
    python scripts/configurar_llamadas.py
