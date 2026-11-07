@@ -7,6 +7,7 @@ Solo cuando el dueño pulsa "Llamar" el bot de Telegram la pone en marcha.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -128,7 +129,8 @@ async def pedir_confirmacion_telegram(llamada: dict) -> None:
     chat = chat_del_dueno()
     if chat is None:
         raise RuntimeError("Falta TELEGRAM_ALLOWED_IDS")
-    telegram(
+    await asyncio.to_thread(  # en segundo plano: no bloquea al bot ni a la voz mientras Telegram responde
+        telegram,
         "sendMessage",
         chat_id=chat,
         text=texto_confirmacion(llamada),

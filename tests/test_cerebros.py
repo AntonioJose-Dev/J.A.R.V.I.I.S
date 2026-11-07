@@ -73,6 +73,18 @@ def test_desde_el_pc_abre_sigue_siendo_el_pc():
     assert "pc" in cerebros.grupos_para("Abre YouTube")
 
 
+@pytest.mark.parametrize("texto", ["Escríbele a mamá que llego tarde", "Mándale un mensaje a Juan",
+                                   "Envíale un whatsapp a Carlos", "Dile por WhatsApp a Ana que sí"])
+def test_mensajes_escritos_van_al_movil_y_no_al_teclado_del_pc(texto):
+    g = cerebros.grupos_para(texto)  # también desde el PC
+    assert "movil" in g and "pc" not in g
+
+
+def test_llamar_no_arrastra_los_mensajes_del_turno_anterior():
+    g = cerebros.grupos_para("Llama a José y dile que llego tarde", {"movil"})
+    assert "llamadas" in g and "movil" not in g
+
+
 def test_sigue_el_hilo_del_turno_anterior():
     # "busca el archivo factura" (pc) y luego "mándamelo": el grupo pc se mantiene
     assert "pc" in cerebros.grupos_para("vale, ese", cerebros.grupos_de_herramientas({"buscar_archivo"}))

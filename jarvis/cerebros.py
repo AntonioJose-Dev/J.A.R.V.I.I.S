@@ -124,6 +124,7 @@ def _normalizar(texto: str) -> str:
 
 
 MENCIONA_PC = r"\bpc\b|ordenador|portatil|computador"
+MENSAJE_ESCRITO = r"whats|wasap|\bsms\b|mensaje|escribele|escribirle|mandale|enviale|mandarle|enviarle|dile por"
 
 
 def grupos_para(texto: str, usados_antes: set[str] = frozenset(), preferir_movil: bool = False) -> set[str]:
@@ -134,6 +135,13 @@ def grupos_para(texto: str, usados_antes: set[str] = frozenset(), preferir_movil
     """
     t = _normalizar(texto)
     grupos = {"basicas"} | {g for g, patron in PALABRAS.items() if re.search(patron, t)}
+    es_mensaje = bool(re.search(MENSAJE_ESCRITO, t))
+    if es_mensaje:
+        grupos |= {"movil"}  # "escríbele a mamá…", "mándale un mensaje a Juan…" son mensajes del móvil
+        grupos.discard("pc")
+    elif "llamadas" in grupos and re.search(r"\bllam|telefonea", t):
+        # "Llama a…" es una llamada: no arrastrar los mensajes del móvil del turno anterior
+        usados_antes = set(usados_antes) - {"movil"}
     if preferir_movil and "pc" in grupos and not re.search(MENCIONA_PC, t):
         grupos = (grupos - {"pc"}) | {"movil"}
         usados_antes = set(usados_antes) - {"pc"}

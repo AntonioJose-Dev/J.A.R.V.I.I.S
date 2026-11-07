@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import re
 import logging
 import os
 import sys
@@ -85,13 +86,29 @@ def que_enviar(me_mando_audio: bool, siempre_voz: bool) -> tuple[bool, bool]:
     return True, siempre_voz
 
 
+# Formatos de botón (y nada más): "llamar:<id>", "cancelar:<id>", "pc:<id>:si|no", "acc:<id>:si|no"
+_BOTON = re.compile(r"^(?:(llamar|cancelar):(\d{1,9})|(pc|acc):(\d{1,9}):(si|no))$")
+TIPO_DE_PREFIJO = {"pc": "pc", "acc": "movil"}  # cada prefijo solo vale para su tipo de acción
+
+
+def parse_boton(data: str | None) -> tuple[str, int, str | None] | None:
+    """('llamar', 7, None) · ('acc', 7, 'si') · None si el botón no tiene un formato válido."""
+    m = _BOTON.match(data or "")
+    if not m:
+        return None
+    if m.group(1):
+        return m.group(1), int(m.group(2)), None
+    return m.group(3), int(m.group(4)), m.group(5)
+
+
 def decidir_boton(user_id: int | None, permitidos: frozenset[int], data: str | None,
                   llamada: dict | None, caducada: bool) -> str:
     """Qué hacer al pulsar un botón de llamada: 'llamar', 'cancelar', 'caducada', 'ya_gestionada' o 'ignorar'."""
-    if user_id is None or user_id not in permitidos or not data or llamada is None:
+    boton = parse_boton(data)
+    if user_id is None or user_id not in permitidos or llamada is None or not boton:
         return "ignorar"
-    accion = data.split(":", 1)[0]
-    if accion not in ("llamar", "cancelar"):
+    accion, call_id, respuesta = boton
+    if accion not in ("llamar", "cancelar") or call_id != llamada["id"]:
         return "ignorar"
     if llamada["estado"] != "pendiente":
         return "ya_gestionada"
@@ -102,26 +119,25 @@ def decidir_boton(user_id: int | None, permitidos: frozenset[int], data: str | N
 
 def decidir_boton_accion(user_id: int | None, permitidos: frozenset[int], data: str | None,
                          accion: dict | None, caducada: bool) -> str:
-    """Botón Sí/No de una acción delicada (`pc:<id>:si|no`): 'ejecutar', 'cancelar', 'caducada',
-    'ya_gestionada' o 'ignorar'."""
-    partes = (data or "").split(":")
-    if user_id is None or user_id not in permitidos or len(partes) != 3 or accion is None:
+    """Botón Sí/No de una acción delicada del PC (`pc:<id>:si|no`) o del móvil (`acc:<id>:si|no`):
+    'ejecutar', 'cancelar', 'caducada', 'ya_gestionada' o 'ignorar'."""
+    boton = parse_boton(data)
+    if user_id is None or user_id not in permitidos or accion is None or not boton or boton[2] is None:
         return "ignorar"
-    if partes[2] not in ("si", "no"):
+    prefijo, accion_id, respuesta = boton
+    if accion_id != accion["id"] or TIPO_DE_PREFIJO.get(prefijo) != accion["tipo"]:
         return "ignorar"
     if accion["estado"] != "pendiente":
         return "ya_gestionada"
-    if partes[2] == "no":
+    if respuesta == "no":
         return "cancelar"
     return "caducada" if caducada else "ejecutar"
 
 
 def id_de_boton(data: str | None) -> int | None:
     """El número de la acción en un botón: 'llamar:7' → 7, 'acc:7:si' → 7, 'pc:7:no' → 7."""
-    try:
-        return int((data or "").split(":")[1])
-    except (IndexError, ValueError):
-        return None
+    boton = parse_boton(data)
+    return boton[1] if boton else None
 
 
 def decidir(user_id: int | None, permitidos: frozenset[int], tipo: str | None) -> str:
@@ -239,8 +255,8 @@ class JarvisTelegram:
         accion = decidir_boton(user.id if user else None, self.permitidos, q.data, llamada,
                                bool(llamada) and telefono.caducada(llamada))
         if accion == "ignorar":
-            log.warning("Botón ignorado: id=%s", user.id if user else "?")
-            await q.answer()
+            log.warning("Botón de llamada ignorado: usuario=%s datos=%r", user.id if user else "?", q.data)
+            await q.answer("No puedo usar este botón (no es tuyo o ya no es válido).", show_alert=True)
             return
         await q.answer()
         quien = f"{llamada['nombre']} ({llamada['numero']})"
@@ -273,10 +289,11 @@ class JarvisTelegram:
         accion = self.memory.get_action(accion_id) if accion_id is not None else None
         decision = decidir_boton_accion(user.id if user else None, self.permitidos, q.data, accion,
                                         bool(accion) and pc.caducada(accion))
-        await q.answer()
         if decision == "ignorar":
-            log.warning("Botón de acción ignorado: id=%s", user.id if user else "?")
+            log.warning("Botón de acción ignorado: usuario=%s datos=%r", user.id if user else "?", q.data)
+            await q.answer("No puedo usar este botón (no es tuyo o ya no es válido).", show_alert=True)
             return
+        await q.answer()
         desc = accion["descripcion"]
         if decision == "ya_gestionada":
             await q.edit_message_reply_markup(None)
@@ -293,17 +310,26 @@ class JarvisTelegram:
         if not self.memory.set_action_status(accion_id, "ejecutando", only_if="pendiente"):
             await q.edit_message_reply_markup(None)
             return
-        await q.edit_message_text(f"⏳ Haciendo: {desc}…")
+        try:
+            await q.edit_message_text(f"⏳ Haciendo: {desc}…")
+        except Exception:  # noqa: BLE001 (no poder editar el mensaje no debe impedir la acción)
+            log.warning("No pude actualizar el mensaje del botón")
+        donde = "del móvil" if accion["tipo"] == "movil" else "del PC"
         try:
             ejecutor = movil.ejecutar_accion if accion["tipo"] == "movil" else pc.ejecutar_accion
             resultado = await asyncio.to_thread(ejecutor, accion["datos"])
-            self.memory.set_action_status(accion_id, "hecha")
-            await q.edit_message_text(f"✅ {desc}\n{resultado}")
         except Exception as e:
-            log.exception("Falló una acción del PC")
+            log.exception("Falló una acción %s", donde)
             self.memory.set_action_status(accion_id, "fallida")
-            pc.registrar("fallida", id=accion_id, error=type(e).__name__)
-            await q.edit_message_text(f"⚠️ No he podido {desc}: {type(e).__name__}.")
+            pc.registrar("fallida", id=accion_id, tipo=accion["tipo"], error=type(e).__name__)
+            await q.edit_message_text(f"⚠️ No he podido {desc}: {e}")
+            return
+        # Ya está hecho: aunque falle el aviso, el estado es 'hecha' (no se debe repetir)
+        self.memory.set_action_status(accion_id, "hecha")
+        try:
+            await q.edit_message_text(f"✅ {desc}\n{resultado}")
+        except Exception:  # noqa: BLE001
+            log.warning("Acción %s hecha, pero no pude actualizar el mensaje", donde)
 
     async def manejar(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         msg, user = update.effective_message, update.effective_user

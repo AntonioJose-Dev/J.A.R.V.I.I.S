@@ -5,6 +5,7 @@ Funciona cuando el móvil y el PC están en la misma red Wi-Fi.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -241,19 +242,17 @@ def ejecutar_accion(datos: dict) -> str:
     registrar("movil_ejecutar", **{k: v for k, v in datos.items() if k != "texto"})
     if datos["accion"] != "mensaje":
         raise ValueError("acción desconocida")
-    try:
-        if datos["app"] == "whatsapp":
-            # En casa (ADB) se pulsa "enviar" solo; fuera, se deja escrito y lo envías tú
-            if dispositivos_seguro():
-                return _mensaje_por_adb(datos)
-            agente("whatsapp", json.dumps({"numero": datos["numero"], "texto": datos["texto"]}))
-            return "Te he dejado el WhatsApp escrito en el móvil: solo tienes que pulsar enviar."
-        if agente_configurado():
-            agente("sms", json.dumps({"numero": datos["numero"], "texto": datos["texto"]}))
-            return "SMS enviado."
-        return _mensaje_por_adb(datos)
-    except SinMovil as e:
-        return str(e)
+    # Si el móvil no responde se lanza la excepción (SinMovil / ErrorAgente): quien llama lo marca como fallido
+    if datos["app"] == "whatsapp":
+        # En casa (ADB) se pulsa "enviar" solo; fuera, se deja escrito y lo envías tú
+        if dispositivos_seguro():
+            return _mensaje_por_adb(datos)
+        agente("whatsapp", json.dumps({"numero": datos["numero"], "texto": datos["texto"]}))
+        return "Te he dejado el WhatsApp escrito en el móvil: solo tienes que pulsar enviar."
+    if agente_configurado():
+        agente("sms", json.dumps({"numero": datos["numero"], "texto": datos["texto"]}))
+        return "SMS enviado."
+    return _mensaje_por_adb(datos)
 
 
 def dispositivos_seguro() -> list[str]:
@@ -432,6 +431,7 @@ class ControlMovil:
         if self._pedir_confirmacion_movil:
             await self._pedir_confirmacion_movil(self.memory.get_action(accion_id))
         else:
-            telegram_api.pedir_confirmacion(f"📱 JARVIS quiere {descripcion}. ¿Le dejas?\n(Caduca en 10 minutos.)",
+            await asyncio.to_thread(telegram_api.pedir_confirmacion,
+                                    f"📱 JARVIS quiere {descripcion}. ¿Le dejas?\n(Caduca en 10 minutos.)",
                                             "acc", accion_id)
         return self._texto_pendiente(descripcion)

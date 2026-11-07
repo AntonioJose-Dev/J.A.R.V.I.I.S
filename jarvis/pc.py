@@ -12,6 +12,7 @@ Todo lo que hace queda apuntado en jarvis_acciones.log.
 
 from __future__ import annotations
 
+import asyncio
 import ctypes
 import json
 import logging
@@ -403,7 +404,7 @@ class ControlPC:
         if not dentro_de(p, carpetas_permitidas()):
             return "Solo puedo mandar archivos de las carpetas permitidas."
         registrar("enviar_archivo", ruta=str(p))
-        telegram_api.enviar_archivo(p.name, p.read_bytes(), caption=p.name)
+        await asyncio.to_thread(telegram_api.enviar_archivo, p.name, p.read_bytes(), caption=p.name)
         return f"Te he mandado «{p.name}» por Telegram."
 
     @function_tool
@@ -426,7 +427,9 @@ class ControlPC:
     async def captura_pantalla(self, context: RunContext) -> str:
         """Hace una captura de la pantalla del PC y se la manda al usuario por Telegram."""
         registrar("captura_pantalla")
-        telegram_api.enviar_archivo("pantalla.png", captura_png(), caption="Tu pantalla ahora mismo", como_foto=True)
+        png = await asyncio.to_thread(captura_png)
+        await asyncio.to_thread(telegram_api.enviar_archivo, "pantalla.png", png,
+                                caption="Tu pantalla ahora mismo", como_foto=True)
         return ("Captura enviada por Telegram. (Todavía no puedo ver la imagen yo mismo: "
                 "el cerebro actual no entiende imágenes.)")
 
@@ -464,7 +467,8 @@ class ControlPC:
 
 
 async def _pedir_por_telegram(accion: dict) -> None:
-    telegram_api.pedir_confirmacion(
+    await asyncio.to_thread(
+        telegram_api.pedir_confirmacion,
         f"🖥️ JARVIS quiere {accion['descripcion']} en tu PC. ¿Le dejas?\n(Caduca en 10 minutos.)",
         "pc", accion["id"],
     )
