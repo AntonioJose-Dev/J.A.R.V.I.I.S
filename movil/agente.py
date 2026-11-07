@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PUERTO = int(os.environ.get("JARVIS_MOVIL_PUERTO", "8765"))
 RUTA_TOKEN = os.path.expanduser("~/.jarvis_token")
-VERSION = "12"
+VERSION = "13"
 
 
 def ejecutar(cmd: list[str], timeout: float = 30) -> str:
@@ -374,6 +374,19 @@ def diagnostico(_v: str) -> dict:
         salida["instaladas"] = [l.removeprefix("package:") for l in r.stdout.split("\n") if l.strip()]
     except Exception as e:  # noqa: BLE001
         salida["instaladas"] = f"error {type(e).__name__}"
+    # La app JARVIS: versión instalada y si su permiso de accesibilidad está activado
+    for nombre, cmd in (
+        ("app_jarvis_version", ["pm", "list", "packages", "--show-versioncode", "com.jarvis.companion"]),
+        ("accesibilidad_activa", ["settings", "get", "secure", "enabled_accessibility_services"]),
+    ):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+            texto = (r.stdout or r.stderr).strip()
+            salida[nombre] = ("com.jarvis.companion" in texto) if nombre == "accesibilidad_activa" and r.returncode == 0 \
+                else texto[:200]
+        except Exception as e:  # noqa: BLE001
+            salida[nombre] = f"error {type(e).__name__}"
+    salida["companion"] = companion_estado("")
     for nombre, cmd, tiempo in (
         ("notificaciones", ["termux-notification-list"], 25),
         ("ubicacion_red", ["termux-location", "-p", "network", "-r", "last"], 25),
