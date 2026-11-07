@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PUERTO = int(os.environ.get("JARVIS_MOVIL_PUERTO", "8765"))
 RUTA_TOKEN = os.path.expanduser("~/.jarvis_token")
-VERSION = "4"
+VERSION = "5"
 
 
 def ejecutar(cmd: list[str], timeout: float = 30) -> str:
@@ -230,6 +230,8 @@ def diagnostico(_v: str) -> dict:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=tiempo)
             salida[nombre] = {"codigo": r.returncode, "bytes": len(r.stdout), "error": r.stderr.strip()[:200],
                               "empieza": r.stdout.strip()[:1], "segundos": round(time.time() - t0, 1)}
+            if r.stdout.strip()[:1] not in ("{", "["):  # no son datos sino un aviso de Termux:API: se puede ver
+                salida[nombre]["aviso"] = r.stdout.strip()[:200]
         except subprocess.TimeoutExpired:
             salida[nombre] = {"timeout": tiempo}
     return salida
