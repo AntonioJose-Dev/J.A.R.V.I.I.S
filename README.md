@@ -49,7 +49,7 @@ Para probar solo el oído (Deepgram): `python scripts/prueba_oido.py`.
 ## Hablar con JARVIS por Telegram
 
 El mismo JARVIS (mismo cerebro, herramientas y memoria) también responde por Telegram:
-mensajes de texto, y notas de voz que contesta con texto y con otra nota de voz.
+a un mensaje de texto contesta con texto, y a una nota de voz contesta solo con otra nota de voz.
 
 1. En Telegram, abre **@BotFather**, envía `/newbot` y sigue los pasos. Copia el token en `.env` como `TELEGRAM_BOT_TOKEN`.
 2. Arranca el bot:

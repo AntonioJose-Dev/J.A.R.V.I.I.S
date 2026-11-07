@@ -4,10 +4,10 @@ import av
 import numpy as np
 
 from jarvis.telegram_bot import (
-    contestar_con_voz,
     decidir,
     parse_ids,
     pcm_a_ogg_opus,
+    que_enviar,
     tipo_de_mensaje,
 )
 
@@ -64,10 +64,14 @@ def test_comando_voz():
     assert decidir(999, PERMITIDOS, "alternar_voz") == "ignorar"
 
 
-def test_cuando_contestar_con_voz():
-    assert contestar_con_voz(me_mando_audio=True, siempre_voz=False) is True
-    assert contestar_con_voz(me_mando_audio=False, siempre_voz=False) is False
-    assert contestar_con_voz(me_mando_audio=False, siempre_voz=True) is True
+def test_a_un_audio_se_contesta_solo_con_audio():
+    assert que_enviar(me_mando_audio=True, siempre_voz=False) == (False, True)
+    assert que_enviar(me_mando_audio=True, siempre_voz=True) == (False, True)
+
+
+def test_a_un_texto_se_contesta_con_texto_y_voz_solo_si_esta_activada():
+    assert que_enviar(me_mando_audio=False, siempre_voz=False) == (True, False)
+    assert que_enviar(me_mando_audio=False, siempre_voz=True) == (True, True)
 
 
 def test_pcm_a_ogg_opus_genera_audio_valido():

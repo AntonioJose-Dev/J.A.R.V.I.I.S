@@ -65,9 +65,11 @@ def tipo_de_mensaje(texto: str | None, tiene_voz: bool) -> str | None:
     return "texto"
 
 
-def contestar_con_voz(me_mando_audio: bool, siempre_voz: bool) -> bool:
-    """Si además del texto hay que mandar una nota de voz."""
-    return me_mando_audio or siempre_voz
+def que_enviar(me_mando_audio: bool, siempre_voz: bool) -> tuple[bool, bool]:
+    """(texto, voz): a un audio se contesta solo con audio; a un texto, con texto (+ voz si /voz)."""
+    if me_mando_audio:
+        return False, True
+    return True, siempre_voz
 
 
 def decidir(user_id: int | None, permitidos: frozenset[int], tipo: str | None) -> str:
@@ -182,7 +184,7 @@ class JarvisTelegram:
             nuevo = not self.siempre_voz(msg.chat_id)
             self.memory.set_setting(f"telegram.siempre_voz.{msg.chat_id}", "1" if nuevo else "0")
             await msg.reply_text(
-                "A partir de ahora le contestaré siempre también con una nota de voz. /voz para desactivarlo."
+                "A partir de ahora a sus mensajes de texto le contestaré también con una nota de voz. /voz para desactivarlo."
                 if nuevo else
                 "Entendido: solo le contestaré con voz cuando usted me mande un audio. /voz para cambiarlo."
             )
@@ -192,7 +194,6 @@ class JarvisTelegram:
         try:
             if accion == "texto":
                 respuesta = await self.pensar(msg.chat_id, msg.text)
-                await msg.reply_text(respuesta)
             else:
                 archivo = await context.bot.get_file(msg.voice.file_id)
                 audio = bytes(await archivo.download_as_bytearray())
@@ -200,15 +201,20 @@ class JarvisTelegram:
                 if not texto:
                     await msg.reply_text("No le he entendido, señor. ¿Puede repetirlo?")
                     return
+                log.info("Nota de voz transcrita: %s", texto)
                 respuesta = await self.pensar(msg.chat_id, texto)
-                await msg.reply_text(f"🎙️ «{texto}»\n\n{respuesta}")
 
-            if contestar_con_voz(accion == "voz", self.siempre_voz(msg.chat_id)):
+            con_texto, con_voz = que_enviar(accion == "voz", self.siempre_voz(msg.chat_id))
+            if con_texto:
+                await msg.reply_text(respuesta)
+            if con_voz:
                 await context.bot.send_chat_action(msg.chat_id, ChatAction.RECORD_VOICE)
                 try:
                     await msg.reply_voice(voice=await self.hablar(respuesta))
                 except Exception:
                     log.exception("No pude generar la nota de voz")
+                    if not con_texto:  # que la respuesta no se pierda
+                        await msg.reply_text(respuesta)
         except Exception:
             log.exception("Error atendiendo un mensaje")
             await msg.reply_text("He tenido un problema técnico, señor. Inténtelo de nuevo en un momento.")
