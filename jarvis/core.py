@@ -119,27 +119,57 @@ class Jarvis(ControlPC, ControlMovil, Agent):
                 "para confirmarlo. Díselo así.")
 
     @function_tool
-    async def recordar(self, context: RunContext, hecho: str, categoria: str = "general") -> str:
-        """Guarda un dato importante sobre el usuario para recordarlo siempre.
+    async def recordar(self, context: RunContext, hecho: str, sobre: str = "", tipo: str = "general",
+                       relacionados: str = "") -> str:
+        """Guarda un dato importante para recordarlo siempre, en el cerebro de JARVIS (notas enlazadas).
 
         Args:
-            hecho: el dato en una frase, por ejemplo "Su madre se llama Carmen".
-            categoria: personas, gustos, fechas, planes o general.
+            hecho: el dato en una frase, por ejemplo "Es la madre de Potro y cumple años el 3 de mayo".
+            sobre: de quién o de qué trata (será su nota), por ejemplo "Carmen". Vacío si no es de nada concreto.
+            tipo: persona, lugar, proyecto, gusto, evento o general.
+            relacionados: otras personas, lugares o cosas que aparecen, separadas por comas, p. ej. "Madrid, Potro".
         """
-        m = self.memory.remember(hecho, categoria)
-        return f"Guardado (#{m.id})."
+        m = self.memory.remember(f"{sobre}: {hecho}" if sobre else hecho, tipo)
+        b = boveda_activa()
+        if b is None:
+            return f"Guardado (#{m.id})."
+        nota = b.recordar(hecho, sobre=sobre, tipo=tipo, relacionados=[r for r in relacionados.split(",") if r.strip()])
+        return f"Guardado en la nota «{nota}»."
 
     @function_tool
     async def buscar_recuerdos(self, context: RunContext, consulta: str) -> str:
-        """Busca en la memoria datos que el usuario contó antes.
+        """Busca en la memoria (el cerebro de JARVIS) lo que el usuario contó antes. Úsala antes de responder
+        sobre su vida, su familia, sus planes o sus gustos.
 
         Args:
-            consulta: palabras clave, por ejemplo "cumpleaños madre".
+            consulta: palabras clave o nombres, por ejemplo "Carmen cumpleaños".
         """
-        found = self.memory.recall(consulta)
-        if not found:
+        b = boveda_activa()
+        if b is None:
+            found = self.memory.recall(consulta)
+            if not found:
+                return "No tengo nada guardado sobre eso."
+            return "\n".join(f"- {m.text} ({m.created_at[:10]})" for m in found)
+        resultados = b.buscar(consulta)
+        if not resultados:
             return "No tengo nada guardado sobre eso."
-        return "\n".join(f"- {m.text} ({m.created_at[:10]})" for m in found)
+        lineas = [f"- Nota «{n}»: {s}" for n, s in resultados]
+        principal = b.leer(resultados[0][0]) or ""
+        enlazadas = [e for e in b.enlaces(principal) if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", e)][:8]
+        if enlazadas:
+            lineas.append("Notas enlazadas (usa leer_nota para ver más): " + ", ".join(enlazadas))
+        return "\n".join(lineas)
+
+    @function_tool
+    async def leer_nota(self, context: RunContext, nombre: str) -> str:
+        """Lee una nota entera del cerebro de JARVIS (por ejemplo la de una persona) para tener todo el contexto.
+
+        Args:
+            nombre: nombre de la nota, por ejemplo "Carmen".
+        """
+        b = boveda_activa()
+        texto = b.leer(nombre) if b else None
+        return texto or f"No hay ninguna nota llamada «{nombre}»."
 
     @function_tool
     async def fecha_y_hora(self, context: RunContext) -> str:
@@ -158,6 +188,27 @@ class Jarvis(ControlPC, ControlMovil, Agent):
         self._grupos_previos = grupos - {"basicas"}
         permitidas = cerebros.herramientas_de(grupos) | self.siempre_disponibles
         await self.update_tools([t for t in self._todas if t.info.name in permitidas])
+
+
+_boveda = None
+
+
+def boveda_activa():
+    """La bóveda de Obsidian si está configurada (JARVIS_BOVEDA en .env); si no, None (memoria SQLite)."""
+    global _boveda
+    if _boveda is None and os.getenv("JARVIS_BOVEDA", "").strip():
+        from .boveda import Boveda, migrar
+
+        _boveda = Boveda(os.environ["JARVIS_BOVEDA"].strip())
+        try:
+            memoria = MemoryStore(os.getenv("JARVIS_MEMORY_PATH", "jarvis_memoria.db"))
+            n = migrar(_boveda, memoria)
+            memoria.close()
+            if n:
+                log.info("Migrados %d recuerdos y contactos a la bóveda", n)
+        except Exception:  # noqa: BLE001
+            log.exception("No pude migrar la memoria antigua a la bóveda")
+    return _boveda
 
 
 def _un_cerebro(nombre: str) -> llm.LLM:
