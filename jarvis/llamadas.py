@@ -201,7 +201,7 @@ def main() -> None:
     faltan = telefono.llamadas_configuradas()
     if faltan and "download-files" not in sys.argv:
         sys.exit("ERROR: faltan datos en .env para las llamadas: " + ", ".join(faltan))
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, agent_name=NOMBRE_AGENTE))
+    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, agent_name=NOMBRE_AGENTE, port=8790))
 
 
 if __name__ == "__main__":

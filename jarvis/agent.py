@@ -78,7 +78,7 @@ def main() -> None:
         except ValueError as e:
             sys.exit(f"ERROR: {e}")
     # Con nombre propio: así no se mete en las salas de las llamadas telefónicas (jarvis-llamadas)
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, agent_name="jarvis-voz", port=8082))  # 8081 es el de llamadas
+    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, agent_name="jarvis-voz", port=8791))  # puertos poco usados
 
 
 if __name__ == "__main__":
