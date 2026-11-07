@@ -25,6 +25,7 @@ NOMBRES = {
     "mistral": "Mistral (gratis)",
     "cerebras": "Cerebras (gratis)",
     "groq_qwen": "Groq Qwen (gratis)",
+    "livekit": "LiveKit Inference (incluido)",
     "gemini": "Gemini (gratis)",
     "elevenlabs": "ElevenLabs",
     "deepgram": "Deepgram Aura",
@@ -49,6 +50,9 @@ GRATUITOS = (("gemini", "GEMINI_API_KEY"), ("mistral", "MISTRAL_API_KEY"),
 
 
 def _cerebro_gratuito(env: Mapping[str, str]) -> str:
+    # LiveKit Cloud trae su propio servicio de modelos: si ya está configurado, no hace falta otra clave
+    if ".livekit.cloud" in env.get("LIVEKIT_URL", "") and _tiene(env, "LIVEKIT_API_KEY") and _tiene(env, "LIVEKIT_API_SECRET"):
+        return "livekit"
     for nombre, clave in GRATUITOS:
         if _tiene(env, clave):
             return nombre

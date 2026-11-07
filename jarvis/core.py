@@ -163,6 +163,12 @@ class Jarvis(ControlPC, ControlMovil, Agent):
 def _un_cerebro(nombre: str) -> llm.LLM:
     if nombre == "claude":
         return anthropic.LLM(model=os.getenv("JARVIS_MODEL", "claude-sonnet-5-5"), caching="ephemeral")
+    if nombre == "livekit":
+        from livekit.agents import inference
+
+        modelo = os.getenv("JARVIS_LIVEKIT_MODEL", "").strip() or cerebros.MODELO_LIVEKIT
+        log.info("Cerebro livekit: modelo %s", modelo)
+        return inference.LLM(model=modelo)
     prov = cerebros.POR_NOMBRE[nombre]
     modelo = cerebros.modelo_de(prov)
     log.info("Cerebro %s: modelo %s", nombre, modelo)
@@ -260,6 +266,7 @@ async def responder(cerebro: llm.LLM, jarvis: Jarvis, historial: llm.ChatContext
     # Solo las herramientas que hacen falta (más las usadas hace poco, para "mándamelo", "sí, ese", etc.)
     recientes = {i.name for i in historial.items[-8:] if getattr(i, "type", None) == "function_call"}
     preferir_movil = getattr(jarvis, "preferir_movil", False)
+    jarvis._ultima_frase = texto  # las herramientas del PC miran si se nombró el PC
     grupos = cerebros.grupos_para(texto, cerebros.grupos_de_herramientas(recientes), preferir_movil)
     permitidas = cerebros.herramientas_de(grupos)
     historial.add_message(role="user", content=texto)

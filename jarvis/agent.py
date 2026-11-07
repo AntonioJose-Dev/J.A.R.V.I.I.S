@@ -22,6 +22,27 @@ from .core import KEYTERMS, MAX_TOOL_STEPS, OWNER, Jarvis, crear_cerebro, crear_
 from .memory import MemoryStore
 
 
+FALLOS = ("NO HECHO", "Error", "No puedo", "No encuentro", "No llego", "El móvil no", "No se pudo", "Falta")
+ETIQUETAS = {
+    "movil_hacer": "📱", "movil_info": "📱", "movil_mensaje": "📱 Mensaje", "abrir_programa": "🖥️ Abrir",
+    "abrir_web": "🖥️ Web", "buscar_archivo": "🖥️ Buscar archivo", "enviar_archivo": "🖥️ Enviar archivo",
+    "multimedia": "🖥️", "captura_pantalla": "🖥️ Captura", "estado_pc": "🖥️ Estado del PC",
+    "bloquear_pc": "🖥️ Bloquear", "accion_pc_delicada": "🖥️", "llamar": "📞 Llamar",
+    "guardar_contacto": "📇 Contacto", "recordar": "🧠 Recordar", "buscar_recuerdos": "🧠 Buscar en memoria",
+    "fecha_y_hora": "🕐 Hora", "confirmar_pendiente": "✅ Confirmar",
+}
+
+
+def etiqueta_accion(nombre: str, argumentos: str) -> str:
+    """Texto corto para la pantalla del móvil: "📱 abrir_app YouTube" en vez de "movil_hacer"."""
+    try:
+        args = json.loads(argumentos or "{}") or {}
+    except ValueError:
+        args = {}
+    detalle = " ".join(str(v) for v in args.values() if v not in (None, "", True, False))[:40]
+    return f"{ETIQUETAS.get(nombre, nombre)} {detalle}".strip()
+
+
 def _mcp_servers() -> list[mcp.MCPServer]:
     urls = [u.strip() for u in os.getenv("JARVIS_MCP_URLS", "").split(",") if u.strip()]
     return [mcp.MCPServerHTTP(url=u) for u in urls]
@@ -57,9 +78,10 @@ async def entrypoint(ctx: JobContext) -> None:
         def _avisar_a_la_pagina(ev) -> None:
             # La página del móvil enseña qué está haciendo JARVIS ("abrir_app · Abriendo YouTube…")
             for llamada, salida in ev.zipped():
-                datos = {"id": llamada.call_id, "nombre": llamada.name,
-                         "estado": "error" if salida and salida.is_error else "ok",
-                         "texto": (salida.output if salida else "")[:90]}
+                texto = (salida.output if salida else "") or ""
+                fallo = (salida is not None and salida.is_error) or texto.startswith(FALLOS)
+                datos = {"id": llamada.call_id, "nombre": etiqueta_accion(llamada.name, llamada.arguments),
+                         "estado": "error" if fallo else "ok", "texto": texto[:120]}
                 asyncio.create_task(ctx.room.local_participant.publish_data(
                     json.dumps(datos, ensure_ascii=False).encode(), topic="jarvis", reliable=True))
     else:

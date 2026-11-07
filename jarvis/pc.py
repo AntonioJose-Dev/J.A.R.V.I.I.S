@@ -306,10 +306,35 @@ def ejecutar_accion(datos: dict) -> str:
 
 # --- Herramientas para el cerebro --------------------------------------------------------
 
+AVISO_ESTA_EN_EL_MOVIL = (
+    "NO HECHO: el usuario te habla desde el MÓVIL y no ha dicho 'en el PC' ni 'en el ordenador'. "
+    "Hazlo en el móvil con movil_hacer (abrir_app, abrir_web, subir_volumen…)."
+)
+
+
+def pidio_el_pc(frase: str) -> bool:
+    return bool(re.search(r"\bpc\b|ordenador|portatil|computador", clave(frase or "")))
+
+
 class ControlPC:
     """Herramientas del PC. Se mezcla en la clase Jarvis (necesita self.memory)."""
 
     _pedir_confirmacion_pc: Callable[[dict], Awaitable[None]] | None = None
+    _ultima_frase = ""
+
+    def _frase_del_usuario(self) -> str:
+        """La última frase del usuario: de la conversación en directo si la hay, si no la guardada."""
+        try:
+            for item in reversed(self.chat_ctx.items):
+                if getattr(item, "type", None) == "message" and item.role == "user":
+                    return item.text_content or ""
+        except Exception:  # noqa: BLE001 (fuera de una sesión de voz no hay chat_ctx)
+            pass
+        return self._ultima_frase
+
+    def _desde_el_movil_sin_pedir_pc(self) -> bool:
+        """Hablando desde el móvil, las acciones visibles del PC solo si se nombró el PC."""
+        return getattr(self, "preferir_movil", False) and not pidio_el_pc(self._frase_del_usuario())
 
     @function_tool
     async def abrir_programa(self, context: RunContext, nombre: str) -> str:
@@ -318,6 +343,8 @@ class ControlPC:
         Args:
             nombre: nombre del programa.
         """
+        if self._desde_el_movil_sin_pedir_pc():
+            return AVISO_ESTA_EN_EL_MOVIL
         encontrado = resolver_app(nombre, indice_programas())
         if not encontrado:
             return f"No encuentro ningún programa que se llame {nombre}."
@@ -333,6 +360,8 @@ class ControlPC:
         Args:
             direccion_o_busqueda: por ejemplo "youtube.com" o "tiempo en Madrid mañana".
         """
+        if self._desde_el_movil_sin_pedir_pc():
+            return AVISO_ESTA_EN_EL_MOVIL
         url = url_para(direccion_o_busqueda)
         registrar("abrir_web", url=url)
         webbrowser.open(url)
@@ -385,6 +414,8 @@ class ControlPC:
             accion: subir_volumen, bajar_volumen, silenciar, play_pausa, siguiente o anterior.
             veces: cuántas veces (para el volumen, cada vez son 2 puntos).
         """
+        if self._desde_el_movil_sin_pedir_pc():
+            return AVISO_ESTA_EN_EL_MOVIL
         if accion not in TECLAS:
             return "Acción no válida. Usa: " + ", ".join(TECLAS)
         registrar("multimedia", accion=accion, veces=veces)

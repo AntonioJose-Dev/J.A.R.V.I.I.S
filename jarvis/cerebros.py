@@ -51,13 +51,19 @@ GRATUITOS = (
               "JARVIS_GROQ2_MODEL", (r"^qwen/qwen3",), "qwen/qwen3.8-27b"),
 )
 POR_NOMBRE = {p.nombre: p for p in GRATUITOS}
-ORDEN = ("claude",) + tuple(p.nombre for p in GRATUITOS)
-CLAVES = {"claude": "ANTHROPIC_API_KEY", **{p.nombre: p.clave for p in GRATUITOS}}
+# "livekit": el servicio de modelos incluido en LiveKit Cloud (usa las mismas claves que la voz; sin clave extra)
+ORDEN = ("claude", "livekit") + tuple(p.nombre for p in GRATUITOS)
+CLAVES = {"claude": "ANTHROPIC_API_KEY", "livekit": "LIVEKIT_API_SECRET", **{p.nombre: p.clave for p in GRATUITOS}}
+MODELO_LIVEKIT = "google/gemini-2.5-flash"
+
+
+def livekit_cloud(env=os.environ) -> bool:
+    return ".livekit.cloud" in env.get("LIVEKIT_URL", "") and bool(env.get("LIVEKIT_API_KEY", "").strip())
 
 
 def disponibles(env=os.environ) -> list[str]:
     """Proveedores con clave, en orden de preferencia."""
-    return [n for n in ORDEN if env.get(CLAVES[n], "").strip()]
+    return [n for n in ORDEN if env.get(CLAVES[n], "").strip() and (n != "livekit" or livekit_cloud(env))]
 
 
 def _version(modelo: str) -> tuple[float, ...]:

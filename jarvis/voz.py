@@ -52,6 +52,10 @@ class JarvisVoz(Jarvis):
         super().__init__(memory, pedir_confirmacion=self._pendiente_llamada,
                          pedir_confirmacion_pc=self._pendiente_accion)
         self._pedir_confirmacion_movil = self._pendiente_accion
+        if isinstance(getattr(self, "_instructions", None), str):  # habla desde el móvil: que lo sepa siempre
+            from .core import NOTA_MOVIL
+
+            self._instructions = f"{self._instructions}\n\n{NOTA_MOVIL}"
         self._pendiente: tuple[str, dict, int] | None = None
         self._turno = 0
         self._ultima_frase = ""
