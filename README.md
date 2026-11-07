@@ -124,18 +124,32 @@ en `jarvis_acciones.log`.
 
 ## Control del móvil (Android)
 
-JARVIS controla tu Android por Wi-Fi desde el PC (ADB inalámbrico, Android 11+). El móvil y el PC tienen que estar
-en la misma Wi-Fi.
+JARVIS controla tu Android **en casa y fuera de casa** (con datos), de dos formas que se complementan:
 
-**Emparejar (una vez):** activa las *Opciones para desarrolladores* (toca 7 veces "Número de compilación"),
-activa *Depuración inalámbrica* → *Vincular dispositivo con código* y ejecuta:
-```bash
-python scripts/emparejar_movil.py
-```
+1. **Agente en el móvil** (principal, funciona en cualquier sitio): un pequeño programa en Termux que JARVIS
+   alcanza por [Tailscale](https://tailscale.com) (red privada y cifrada entre tus dispositivos, gratis).
+2. **ADB** (extra, solo en la Wi-Fi de casa): capturas de pantalla, música y enviar WhatsApp sin tocar nada.
 
-**Lo hace directamente:** batería y estado, notificaciones, ubicación, abrir apps y webs, alarmas y temporizadores,
-volumen y música, hacerlo sonar para encontrarlo y mandarte su pantalla por Telegram.
-**Con botón de confirmación en Telegram:** mandar WhatsApp o SMS en tu nombre.
+JARVIS usa el agente y, si no responde, prueba con ADB.
+
+### Configurar el agente (una vez)
+1. **Tailscale** en el PC y en el móvil, con la misma cuenta.
+2. En el móvil, instala desde **F-Droid** (no desde Play Store): *Termux*, *Termux:API* y *Termux:Boot*.
+   Abre Termux:Boot una vez (para que arranque el agente al encender el móvil).
+3. En el PC: `python scripts/configurar_movil.py`. Te da un comando para pegar en Termux y un código secreto.
+4. En el móvil, dale permisos a Termux:API (ubicación, SMS, cámara, acceso a notificaciones) y quita la
+   optimización de batería a Termux y Termux:API (si no, Android lo duerme).
+
+### ADB en casa (opcional)
+*Opciones para desarrolladores* → *Depuración inalámbrica* → *Vincular con código* y `python scripts/emparejar_movil.py`.
+
+**Lo hace directamente:** batería, notificaciones, ubicación, abrir apps y webs, alarmas y temporizadores, volumen,
+linterna, hacer que el móvil hable, hacerlo sonar para encontrarlo, fotos con la cámara (solo si se lo pides)
+y, en casa, capturas de pantalla y música.
+**Con botón de confirmación en Telegram:** SMS (se envían solos) y WhatsApp (en casa se envían solos; fuera te los
+deja escritos y pulsas enviar).
+
+El PC tiene que estar encendido y con internet: JARVIS vive en él.
 
 ## La voz
 
