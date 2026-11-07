@@ -244,18 +244,22 @@ def ejecutar_accion(datos: dict) -> str:
         raise ValueError("acción desconocida")
     # Si el móvil no responde se lanza la excepción (SinMovil / ErrorAgente): quien llama lo marca como fallido
     if datos["app"] == "whatsapp":
-        # En casa (ADB) se pulsa "enviar" solo; fuera, se deja escrito y lo envías tú
-        if dispositivos_seguro():
+        from . import app_movil
+
+        est = app_movil.estado()
+        if est["en_linea"]:
+            # Camino principal: la app JARVIS (conectada directamente al PC) abre el chat, pulsa Enviar y lo comprueba
+            trabajo = app_movil.encargar("whatsapp", {"numero": datos["numero"], "texto": datos["texto"]})
+            resultado, detalle = app_movil.esperar_resultado(trabajo)
+            if resultado == "enviado":
+                return "WhatsApp enviado (comprobado por la app JARVIS)."
+            raise RuntimeError(f"la app JARVIS no pudo enviarlo: {detalle or resultado}")
+        if dispositivos_seguro():  # reserva en casa: ADB pulsa "Enviar"
             return _mensaje_por_adb(datos)
-        r = agente("whatsapp", json.dumps({"numero": datos["numero"], "texto": datos["texto"]}))
-        if r.get("enviado"):
-            return "WhatsApp enviado (comprobado: la app JARVIS pulsó Enviar)."
-        # Nunca dar por enviado lo que no se ha comprobado: se lanza un error y el botón lo dice claro
-        if r.get("automatico"):
-            raise RuntimeError("la app JARVIS no llegó a pulsar Enviar. ¿Tiene activado el permiso de "
-                               "accesibilidad? Mira en WhatsApp si el mensaje se quedó escrito.")
-        raise RuntimeError("la app JARVIS aún no está conectada, así que NO se ha enviado. Ábrela una vez "
-                           "en el móvil; puede que te haya dejado el mensaje escrito en WhatsApp.")
+        ultimo = est.get("ultimo_error", "")
+        raise RuntimeError("la app JARVIS no está conectada con el PC, así que NO se ha enviado. "
+                           "Comprueba que su permiso de accesibilidad está activado"
+                           + (f" (último error de la app: {ultimo})" if ultimo else "") + ".")
     if agente_configurado():
         agente("sms", json.dumps({"numero": datos["numero"], "texto": datos["texto"]}))
         return "SMS enviado."
@@ -282,7 +286,7 @@ def _mensaje_por_adb(datos: dict) -> str:
     time.sleep(3)
     if _pulsar_enviar():
         return "Mensaje enviado."
-    return "Lo he dejado escrito en el móvil, pero no encontré el botón de enviar: púlsalo tú."
+    raise RuntimeError("lo he dejado escrito en el móvil, pero no encontré el botón de enviar: NO se ha enviado")
 
 
 # --- Herramientas para el cerebro -------------------------------------------------------

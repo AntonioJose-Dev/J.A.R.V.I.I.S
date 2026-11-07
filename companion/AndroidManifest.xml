@@ -3,17 +3,17 @@
      (orden firmada con un secreto y de hace menos de 60 segundos). Base de la futura app "Oye Jarvis". -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.jarvis.companion"
-    android:versionCode="5"
-    android:versionName="1.4">
+    android:versionCode="6"
+    android:versionName="1.5">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
-    <!-- Solo para avisar al agente de JARVIS en este mismo móvil (127.0.0.1); no sale a internet -->
+    <!-- Para hablar con JARVIS en el PC por Tailscale (red privada y cifrada) -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:label="JARVIS"
         android:allowBackup="false"
-        android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/red"
         android:icon="@android:drawable/ic_btn_speak_now">
 
         <activity android:name=".Inicio" android:exported="true">
@@ -23,7 +23,7 @@
             </intent-filter>
         </activity>
 
-        <!-- Ya no hay receptor de mensajes de Android: la app solo pide órdenes al agente de JARVIS (127.0.0.1) -->
+        <!-- Sin receptores de mensajes: la app solo recibe trabajo de JARVIS en el PC, con su código secreto -->
 
         <service
             android:name=".Accesibilidad"

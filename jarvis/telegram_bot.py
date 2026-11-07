@@ -212,6 +212,13 @@ class JarvisTelegram:
 
     async def iniciar(self, app: Application) -> None:
         self.http = aiohttp.ClientSession()
+        from . import app_movil
+
+        try:  # la app JARVIS del móvil se conecta aquí (solo por Tailscale)
+            self.servidor_app = await app_movil.arrancar_servidor()
+        except OSError:
+            log.exception("No pude arrancar el servidor de la app JARVIS")
+            self.servidor_app = None
         me = await app.bot.get_me()
         log.info("Bot @%s listo (%s; %s). Usuarios permitidos: %d",
                  me.username, self.plan.describir(), describir_voz(self.plan), len(self.permitidos))
@@ -225,6 +232,8 @@ class JarvisTelegram:
         ])
 
     async def cerrar(self, app: Application) -> None:
+        if getattr(self, "servidor_app", None):
+            await self.servidor_app.cleanup()
         if self.http:
             await self.http.close()
         self.memory.close()

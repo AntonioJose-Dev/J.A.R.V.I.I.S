@@ -18,8 +18,37 @@ $almacen = "$env:USERPROFILE\.jarvis\companion-firma.jks"
 if (Test-Path $out) { Remove-Item $out -Recurse -Force }
 New-Item -ItemType Directory -Force "$out\gen", "$out\clases", "$out\dex" | Out-Null
 
-Write-Host "1/6 Recursos"
-& "$bt\aapt2.exe" compile --dir "$fuente\res" -o "$out\res.zip"; if ($LASTEXITCODE) { throw "aapt2 compile" }
+Write-Host "1/6 Recursos (con la dirección del PC y el código secreto, que NO se guardan en el repositorio)"
+$envTexto = Get-Content "$raiz\.env" -Raw -Encoding utf8
+$token = [regex]::Match($envTexto, '(?m)^JARVIS_APP_TOKEN=(\S+)').Groups[1].Value
+if (-not $token) { throw "Falta JARVIS_APP_TOKEN en .env" }
+$ts = "C:\Program Files\Tailscale\tailscale.exe"
+$ipPc = (& $ts ip -4 | Select-Object -First 1).Trim()
+$nombrePc = ((& $ts status --json | ConvertFrom-Json).Self.DNSName).TrimEnd('.')
+if (-not $ipPc.StartsWith("100.")) { throw "Tailscale no está activo en el PC" }
+$res = "$out\res"
+Copy-Item "$fuente\res" $res -Recurse
+New-Item -ItemType Directory -Force "$res\xml" | Out-Null
+$utf8 = New-Object System.Text.UTF8Encoding $false
+[IO.File]::WriteAllText("$res\values\conexion.xml", @"
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="servidor_jarvis" translatable="false">http://${ipPc}:8800</string>
+    <string name="token_jarvis" translatable="false">$token</string>
+</resources>
+"@, $utf8)
+# Sin cifrar (HTTP) SOLO hacia el PC por Tailscale, que ya va cifrado por WireGuard. Nada más.
+[IO.File]::WriteAllText("$res\xml\red.xml", @"
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">$ipPc</domain>
+        <domain includeSubdomains="false">$nombrePc</domain>
+    </domain-config>
+</network-security-config>
+"@, $utf8)
+& "$bt\aapt2.exe" compile --dir $res -o "$out\res.zip"; if ($LASTEXITCODE) { throw "aapt2 compile" }
 & "$bt\aapt2.exe" link -I $androidJar --manifest "$fuente\AndroidManifest.xml" -o "$out\base.apk" "$out\res.zip" --java "$out\gen" --min-sdk-version 26 --target-sdk-version 34
 if ($LASTEXITCODE) { throw "aapt2 link" }
 

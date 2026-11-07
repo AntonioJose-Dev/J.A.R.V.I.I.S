@@ -161,21 +161,6 @@ def test_whatsapp_no_se_da_por_enviado_si_la_app_no_lo_confirma(tmp_path, monkey
     assert r["automatico"] is True and r["enviado"] is False
 
 
-def test_el_pc_nunca_dice_enviado_sin_comprobarlo(monkeypatch):
-    from jarvis import movil as pc_movil
-
-    datos = {"accion": "mensaje", "app": "whatsapp", "numero": "+34600123456", "texto": "hola"}
-    monkeypatch.setattr(pc_movil, "dispositivos_seguro", lambda: [])
-    monkeypatch.setattr(pc_movil, "agente", lambda *a, **k: {"ok": True, "automatico": True, "enviado": False})
-    with pytest.raises(RuntimeError, match="no llegó a pulsar"):
-        pc_movil.ejecutar_accion(datos)
-    monkeypatch.setattr(pc_movil, "agente", lambda *a, **k: {"ok": True, "automatico": False, "enviado": False})
-    with pytest.raises(RuntimeError, match="NO se ha enviado"):
-        pc_movil.ejecutar_accion(datos)
-    monkeypatch.setattr(pc_movil, "agente", lambda *a, **k: {"ok": True, "automatico": True, "enviado": True})
-    assert "comprobado" in pc_movil.ejecutar_accion(datos)
-
-
 def test_sms_usa_termux_sms_send_con_argumentos_separados(monkeypatch):
     ejecutados = []
     monkeypatch.setattr(agente, "ejecutar", lambda cmd, timeout=30: ejecutados.append(cmd) or "")
