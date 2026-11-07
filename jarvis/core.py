@@ -27,6 +27,25 @@ log = logging.getLogger("jarvis")
 OWNER = os.getenv("JARVIS_OWNER_NAME", "Potro")
 TZ = ZoneInfo("Europe/Madrid")
 MAX_TOOL_STEPS = 5
+# Palabras que Deepgram debe reconocer aunque no sean españolas ("Yarbi" -> "Jarvis")
+KEYTERMS = ["Jarvis"]
+
+DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+         "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+
+
+def fecha_hora_texto(now: datetime | None = None) -> str:
+    now = now or datetime.now(TZ)
+    return f"{DIAS[now.weekday()]} {now.day} de {MESES[now.month - 1]} de {now.year}, {now:%H:%M}"
+
+
+def nota_de_hora(now: datetime | None = None) -> str:
+    """Se añade al contexto en cada turno para que el modelo nunca tenga que adivinar la hora."""
+    return (
+        f"Fecha y hora actuales en España: {fecha_hora_texto(now)} (hora de Madrid). "
+        "Usa exactamente este dato si te preguntan la fecha o la hora; nunca te la inventes."
+    )
 
 
 class Jarvis(Agent):
@@ -61,11 +80,11 @@ class Jarvis(Agent):
     @function_tool
     async def fecha_y_hora(self, context: RunContext) -> str:
         """Devuelve la fecha y hora actuales en España."""
-        now = datetime.now(TZ)
-        dias = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
-        meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
-                 "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
-        return f"{dias[now.weekday()]} {now.day} de {meses[now.month - 1]} de {now.year}, {now:%H:%M}"
+        return fecha_hora_texto()
+
+    async def on_user_turn_completed(self, turn_ctx: llm.ChatContext, new_message: llm.ChatMessage) -> None:
+        # Agente de voz: antes de cada respuesta le recordamos la hora real.
+        turn_ctx.add_message(role="system", content=nota_de_hora())
 
 
 def crear_cerebro(plan: Plan) -> llm.LLM:
@@ -103,7 +122,7 @@ async def responder(cerebro: llm.LLM, jarvis: Jarvis, historial: llm.ChatContext
     respuesta = ""
     for _ in range(MAX_TOOL_STEPS):
         ctx = historial.copy()
-        ctx.items.insert(0, llm.ChatMessage(role="system", content=[jarvis.instructions]))
+        ctx.items.insert(0, llm.ChatMessage(role="system", content=[jarvis.instructions, nota_de_hora()]))
         respuesta, llamadas = "", []
         async with cerebro.chat(chat_ctx=ctx, tools=list(herramientas.values())) as stream:
             async for chunk in stream:
@@ -126,6 +145,7 @@ async def responder(cerebro: llm.LLM, jarvis: Jarvis, historial: llm.ChatContext
 async def _ejecutar(herramientas: dict, nombre: str, argumentos: str) -> tuple[str, bool]:
     if nombre not in herramientas:
         return f"La herramienta {nombre} no existe.", True
+    log.info("Herramienta usada: %s", nombre)
     try:
         args = json.loads(argumentos or "{}") or {}
         return str(await herramientas[nombre](None, **args)), False

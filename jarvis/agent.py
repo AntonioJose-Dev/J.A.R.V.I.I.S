@@ -16,7 +16,7 @@ from livekit.plugins import deepgram, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from .config import elegir_plan
-from .core import MAX_TOOL_STEPS, OWNER, Jarvis, crear_cerebro, crear_voz, log
+from .core import KEYTERMS, MAX_TOOL_STEPS, OWNER, Jarvis, crear_cerebro, crear_voz, log
 from .memory import MemoryStore
 
 
@@ -33,7 +33,7 @@ async def entrypoint(ctx: JobContext) -> None:
 
     session = AgentSession(
         vad=silero.VAD.load(),
-        stt=deepgram.STT(model="nova-3", language="es"),
+        stt=deepgram.STT(model="nova-3", language="es", keyterm=KEYTERMS),
         llm=crear_cerebro(plan),
         tts=crear_voz(plan),
         turn_detection=MultilingualModel(),

@@ -3,7 +3,13 @@ import io
 import av
 import numpy as np
 
-from jarvis.telegram_bot import decidir, parse_ids, pcm_a_ogg_opus, tipo_de_mensaje
+from jarvis.telegram_bot import (
+    contestar_con_voz,
+    decidir,
+    parse_ids,
+    pcm_a_ogg_opus,
+    tipo_de_mensaje,
+)
 
 YO = 123456789
 PERMITIDOS = frozenset({YO})
@@ -50,6 +56,18 @@ def test_lista_vacia_no_deja_pasar_a_nadie():
 def test_mensajes_sin_contenido_o_sin_usuario_se_ignoran():
     assert decidir(YO, PERMITIDOS, None) == "ignorar"
     assert decidir(None, PERMITIDOS, "texto") == "ignorar"
+
+
+def test_comando_voz():
+    assert tipo_de_mensaje("/voz", False) == "alternar_voz"
+    assert decidir(YO, PERMITIDOS, "alternar_voz") == "alternar_voz"
+    assert decidir(999, PERMITIDOS, "alternar_voz") == "ignorar"
+
+
+def test_cuando_contestar_con_voz():
+    assert contestar_con_voz(me_mando_audio=True, siempre_voz=False) is True
+    assert contestar_con_voz(me_mando_audio=False, siempre_voz=False) is False
+    assert contestar_con_voz(me_mando_audio=False, siempre_voz=True) is True
 
 
 def test_pcm_a_ogg_opus_genera_audio_valido():

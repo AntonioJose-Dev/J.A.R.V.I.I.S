@@ -60,6 +60,7 @@ mensajes de texto, y notas de voz que contesta con texto y con otra nota de voz.
 
 Solo responde a los IDs de `TELEGRAM_ALLOWED_IDS`: a cualquier otro lo ignora (y lo apunta en el log).
 `/olvida` reinicia la conversación (lo guardado con `recordar` se mantiene).
+`/voz` activa o desactiva que conteste siempre también con nota de voz (por defecto, solo cuando le mandas un audio). Se recuerda aunque reinicies el bot.
 El bot funciona mientras esté encendido el ordenador donde lo arrancas.
 
 ## Estructura

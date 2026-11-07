@@ -42,6 +42,10 @@ class MemoryStore:
                 INSERT INTO memories_fts(memories_fts, rowid, text)
                 VALUES ('delete', old.id, old.text);
             END;
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             """
         )
         self._db.commit()
@@ -86,6 +90,18 @@ class MemoryStore:
         cur = self._db.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
         self._db.commit()
         return cur.rowcount > 0
+
+    def get_setting(self, key: str, default: str | None = None) -> str | None:
+        row = self._db.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return row[0] if row else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        self._db.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+        self._db.commit()
 
     def close(self) -> None:
         self._db.close()

@@ -27,7 +27,7 @@ from telegram.constants import ChatAction
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from .config import elegir_plan
-from .core import Jarvis, crear_cerebro, crear_voz, responder
+from .core import KEYTERMS, Jarvis, crear_cerebro, crear_voz, responder
 from .memory import MemoryStore
 
 log = logging.getLogger("jarvis.telegram")
@@ -60,11 +60,18 @@ def tipo_de_mensaje(texto: str | None, tiene_voz: bool) -> str | None:
         return "olvida"
     if comando == "/start":
         return "start"
+    if comando == "/voz":
+        return "alternar_voz"
     return "texto"
 
 
+def contestar_con_voz(me_mando_audio: bool, siempre_voz: bool) -> bool:
+    """Si además del texto hay que mandar una nota de voz."""
+    return me_mando_audio or siempre_voz
+
+
 def decidir(user_id: int | None, permitidos: frozenset[int], tipo: str | None) -> str:
-    """Qué hacer con un mensaje: 'id', 'start', 'olvida', 'texto', 'voz' o 'ignorar'."""
+    """Qué hacer con un mensaje: 'id', 'start', 'olvida', 'alternar_voz', 'texto', 'voz' o 'ignorar'."""
     if tipo is None or user_id is None:
         return "ignorar"
     if tipo == "id":
@@ -100,7 +107,7 @@ async def transcribir(audio: bytes, mime: str, key: str) -> str:
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(
             DEEPGRAM_URL,
-            params={"model": "nova-3", "language": "es", "smart_format": "true"},
+            params={"model": "nova-3", "language": "es", "smart_format": "true", "keyterm": KEYTERMS},
             headers={"Authorization": f"Token {key}", "Content-Type": mime},
             content=audio,
         )
@@ -131,6 +138,9 @@ class JarvisTelegram:
         if self.http:
             await self.http.close()
         self.memory.close()
+
+    def siempre_voz(self, chat_id: int) -> bool:
+        return self.memory.get_setting(f"telegram.siempre_voz.{chat_id}", "0") == "1"
 
     async def pensar(self, chat_id: int, texto: str) -> str:
         historial = self.historiales.setdefault(chat_id, llm.ChatContext())
@@ -168,26 +178,37 @@ class JarvisTelegram:
             self.historiales.pop(msg.chat_id, None)
             await msg.reply_text("Conversación reiniciada. Lo que me pidió recordar sigue guardado.")
             return
+        if accion == "alternar_voz":
+            nuevo = not self.siempre_voz(msg.chat_id)
+            self.memory.set_setting(f"telegram.siempre_voz.{msg.chat_id}", "1" if nuevo else "0")
+            await msg.reply_text(
+                "A partir de ahora le contestaré siempre también con una nota de voz. /voz para desactivarlo."
+                if nuevo else
+                "Entendido: solo le contestaré con voz cuando usted me mande un audio. /voz para cambiarlo."
+            )
+            return
 
         await context.bot.send_chat_action(msg.chat_id, ChatAction.TYPING)
         try:
             if accion == "texto":
-                await msg.reply_text(await self.pensar(msg.chat_id, msg.text))
-                return
+                respuesta = await self.pensar(msg.chat_id, msg.text)
+                await msg.reply_text(respuesta)
+            else:
+                archivo = await context.bot.get_file(msg.voice.file_id)
+                audio = bytes(await archivo.download_as_bytearray())
+                texto = await transcribir(audio, msg.voice.mime_type or "audio/ogg", self.deepgram_key)
+                if not texto:
+                    await msg.reply_text("No le he entendido, señor. ¿Puede repetirlo?")
+                    return
+                respuesta = await self.pensar(msg.chat_id, texto)
+                await msg.reply_text(f"🎙️ «{texto}»\n\n{respuesta}")
 
-            archivo = await context.bot.get_file(msg.voice.file_id)
-            audio = bytes(await archivo.download_as_bytearray())
-            texto = await transcribir(audio, msg.voice.mime_type or "audio/ogg", self.deepgram_key)
-            if not texto:
-                await msg.reply_text("No le he entendido, señor. ¿Puede repetirlo?")
-                return
-            respuesta = await self.pensar(msg.chat_id, texto)
-            await msg.reply_text(f"🎙️ «{texto}»\n\n{respuesta}")
-            await context.bot.send_chat_action(msg.chat_id, ChatAction.RECORD_VOICE)
-            try:
-                await msg.reply_voice(voice=await self.hablar(respuesta))
-            except Exception:
-                log.exception("No pude generar la nota de voz")
+            if contestar_con_voz(accion == "voz", self.siempre_voz(msg.chat_id)):
+                await context.bot.send_chat_action(msg.chat_id, ChatAction.RECORD_VOICE)
+                try:
+                    await msg.reply_voice(voice=await self.hablar(respuesta))
+                except Exception:
+                    log.exception("No pude generar la nota de voz")
         except Exception:
             log.exception("Error atendiendo un mensaje")
             await msg.reply_text("He tenido un problema técnico, señor. Inténtelo de nuevo en un momento.")
