@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PUERTO = int(os.environ.get("JARVIS_MOVIL_PUERTO", "8765"))
 RUTA_TOKEN = os.path.expanduser("~/.jarvis_token")
-VERSION = "11"
+VERSION = "12"
 
 
 def ejecutar(cmd: list[str], timeout: float = 30) -> str:
@@ -229,48 +229,96 @@ def _esperar_aviso(eventos: tuple[str, ...], marca: str, segundos: float) -> str
 
 
 def _secreto_companion() -> str | None:
-    for ruta in (RUTA_COMPANION, RUTA_COMPANION + ".nuevo"):
-        if os.path.exists(ruta):
-            return open(ruta, encoding="utf-8").read().strip()
+    if os.path.exists(RUTA_COMPANION):
+        return open(RUTA_COMPANION, encoding="utf-8").read().strip()
     return None
 
 
-def companion_configurar(_v: str) -> dict:
-    """Conecta el agente con la app JARVIS (una sola vez): comparten un secreto para firmar las órdenes.
-    La app confirma con un aviso firmado (el `am` de Termux no devuelve la respuesta de la app)."""
+# --- Emparejado y órdenes: siempre los PIDE la app (por 127.0.0.1); el agente no le manda nada -----------
+# (el `am` de Termux envía "a ciegas" y no se puede saber si la app recibió algo; así no hace falta)
+_PEDIDO: dict = {}          # la orden de WhatsApp confirmada que espera a que la app la recoja
+_PEDIDO_LOCK = __import__("threading").Lock()
+_PETICIONES_APP = {"emparejar": 0, "orden": 0, "aviso": 0}  # para el diagnóstico
+
+
+def _solo_desde_el_movil(ip: str | None) -> bool:
+    import ipaddress
+
+    try:
+        return ipaddress.ip_address((ip or "").removeprefix("::ffff:")).is_loopback
+    except ValueError:
+        return False
+
+
+def app_emparejar(ip: str | None) -> tuple[int, dict]:
+    """POST /companion/emparejar: la app pide el secreto. Solo si aún no hay ninguna app emparejada
+    (para cambiarla, 'olvidar' desde JARVIS con companion_olvidar)."""
     import secrets as _secrets
 
+    _PETICIONES_APP["emparejar"] += 1
+    if not _solo_desde_el_movil(ip):
+        return 403, {"error": "solo desde el móvil"}
+    if os.path.exists(RUTA_COMPANION):
+        return 409, {"error": "ya hay una app emparejada: pide a JARVIS que la olvide primero"}
     secreto = _secrets.token_hex(32)
-    nuevo = RUTA_COMPANION + ".nuevo"
-    with open(nuevo, "w", encoding="utf-8") as f:
+    with open(RUTA_COMPANION, "w", encoding="utf-8") as f:
         f.write(secreto)
-    os.chmod(nuevo, 0o600)
-    _difundir_crudo("CONFIGURAR", {"secreto": secreto})
-    if _esperar_aviso(("configurada",), "0", 10) is None:
-        os.remove(nuevo)
-        raise RuntimeError("la app JARVIS no contesta: ábrela en el móvil y pulsa 'Reconectar con JARVIS', "
-                           "y vuelve a intentarlo")
-    os.replace(nuevo, RUTA_COMPANION)
+    os.chmod(RUTA_COMPANION, 0o600)
+    return 200, {"secreto": secreto}
+
+
+def app_orden(cuerpo: bytes, ip: str | None) -> tuple[int, dict]:
+    """POST /companion/orden: la app (firmando con el secreto) pregunta si hay un WhatsApp confirmado."""
+    _PETICIONES_APP["orden"] += 1
+    secreto = _secreto_companion()
+    if not _solo_desde_el_movil(ip) or not secreto:
+        return 403, {}
+    try:
+        d = json.loads(cuerpo or b"{}")
+        marca_peticion, firma = str(d["ts"]), str(d["firma"])
+    except (ValueError, KeyError):
+        return 400, {}
+    esperada = hmac.new(secreto.encode(), f"orden\n{marca_peticion}".encode(), "sha256").hexdigest()
+    if not hmac.compare_digest(esperada, firma) or abs(time.time() * 1000 - int(marca_peticion)) > 60_000:
+        return 401, {}
+    with _PEDIDO_LOCK:
+        if not _PEDIDO or time.time() > _PEDIDO["caduca"]:
+            return 204, {}
+        p = dict(_PEDIDO)
+    return 200, {"texto": p["texto"], "marca": p["marca"], "firma": p["firma"]}
+
+
+def companion_olvidar(_v: str) -> dict:
+    """Olvida la app emparejada (para volver a emparejar)."""
+    if os.path.exists(RUTA_COMPANION):
+        os.remove(RUTA_COMPANION)
     return {"ok": True}
 
 
+def companion_estado(_v: str) -> dict:
+    return {"emparejada": os.path.exists(RUTA_COMPANION), "peticiones_app": dict(_PETICIONES_APP),
+            "avisos": len(_AVISOS)}
+
+
 def whatsapp(v: str) -> dict:
-    """Abre el chat con el texto escrito y, si está la app JARVIS, le ordena (firmado) que pulse Enviar."""
+    """Abre el chat con el texto escrito y deja la orden firmada para que la app JARVIS pulse Enviar."""
     from urllib.parse import quote
 
     d = json.loads(v)
-    automatico, marca = False, ""
-    if os.path.exists(RUTA_COMPANION):
-        secreto = open(RUTA_COMPANION, encoding="utf-8").read().strip()
-        marca = str(int(time.time() * 1000))
+    secreto = _secreto_companion()
+    marca = str(int(time.time() * 1000))
+    if secreto:
         firma = hmac.new(secreto.encode(), f"{marca}\n{d['texto']}".encode(), "sha256").hexdigest()
-        _difundir_crudo("ENVIAR", {"texto": d["texto"], "marca": marca, "firma": firma})
-        automatico = True
+        with _PEDIDO_LOCK:
+            _PEDIDO.clear()
+            _PEDIDO.update(texto=d["texto"], marca=marca, firma=firma, caduca=time.time() + 60)
     ejecutar(["termux-open-url", f"https://wa.me/{d['numero'].lstrip('+')}?text={quote(d['texto'])}"])
-    if not automatico:
+    if not secreto:
         return {"ok": True, "automatico": False, "enviado": False}
     # Comprobar de verdad que la app pulsó "Enviar" para ESTA orden: la app lo avisa firmado
     resultado = _esperar_aviso(("enviado", "fallo_pulsar"), marca, ESPERA_ENVIO)
+    with _PEDIDO_LOCK:
+        _PEDIDO.clear()  # una orden, un intento
     return {"ok": True, "automatico": True, "enviado": resultado == "enviado", "estado_app": resultado or "sin aviso"}
 
 
@@ -345,7 +393,7 @@ def diagnostico(_v: str) -> dict:
 
 ACCIONES = {
     "cambiar_token": cambiar_token, "actualizar": actualizar, "diagnostico": diagnostico,
-    "companion_configurar": companion_configurar,
+    "companion_olvidar": companion_olvidar, "companion_estado": companion_estado,
     "estado": estado, "ubicacion": ubicacion, "notificaciones": notificaciones, "linterna": linterna,
     "volumen": volumen, "sonar": sonar, "hablar": hablar, "vibrar": vibrar, "alarma": alarma,
     "temporizador": temporizador, "abrir_web": abrir_web, "abrir_app": abrir_app, "paquetes": paquetes,
@@ -394,11 +442,22 @@ class Manejador(BaseHTTPRequestHandler):
 
     def do_POST(self):  # noqa: N802
         largo = min(int(self.headers.get("Content-Length", "0")), 100_000)
-        if self.path == "/companion":  # aviso de la app JARVIS de este mismo móvil
-            codigo = recibir_aviso(self.rfile.read(largo), self.client_address[0], _secreto_companion())
+        ip = self.client_address[0]
+        if self.path.startswith("/companion"):  # la app JARVIS de este mismo móvil
+            cuerpo = self.rfile.read(largo)
+            if self.path == "/companion/emparejar":
+                codigo, respuesta = app_emparejar(ip)
+            elif self.path == "/companion/orden":
+                codigo, respuesta = app_orden(cuerpo, ip)
+            else:  # /companion (aviso firmado: configurada / enviado / fallo_pulsar)
+                _PETICIONES_APP["aviso"] += 1
+                codigo, respuesta = recibir_aviso(cuerpo, ip, _secreto_companion()), {}
+            datos = json.dumps(respuesta).encode() if respuesta else b""
             self.send_response(codigo)
-            self.send_header("Content-Length", "0")
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(datos)))
             self.end_headers()
+            self.wfile.write(datos)
             return
         codigo, respuesta = atender(self.rfile.read(largo), self.headers.get("X-Jarvis-Token"), self.token,
                                     self.client_address[0])

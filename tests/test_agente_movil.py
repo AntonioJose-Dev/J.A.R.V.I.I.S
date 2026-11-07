@@ -63,30 +63,69 @@ def test_error_de_una_accion_vuelve_al_pc(monkeypatch):
     assert codigo == 500 and "sin GPS" in r["error"]
 
 
-def test_whatsapp_firma_la_orden_para_la_app(tmp_path, monkeypatch):
+def _firma(secreto, texto):
     import hashlib
     import hmac as _hmac
+
+    return _hmac.new(secreto.encode(), texto.encode(), hashlib.sha256).hexdigest()
+
+
+def test_whatsapp_deja_la_orden_firmada_y_la_app_la_recoge(tmp_path, monkeypatch):
+    import time as _time
 
     secreto = "s" * 64
     ruta = tmp_path / "companion"
     ruta.write_text(secreto)
     monkeypatch.setattr(agente, "RUTA_COMPANION", str(ruta))
-    comandos = []
+    comandos, recogida = [], {}
 
-    def ejecutar(cmd, timeout=30):
-        comandos.append(cmd)
-        return "Broadcast sent without waiting for result" if cmd[:2] == ["am", "broadcast"] else ""
-    monkeypatch.setattr(agente, "ejecutar", ejecutar)
-    monkeypatch.setattr(agente, "_esperar_aviso", lambda eventos, marca, s: "enviado")
+    def esperar(eventos, marca, s):
+        # Mientras JARVIS espera, la app (desde el propio móvil, firmando) pide la orden
+        ts = str(int(_time.time() * 1000))
+        recogida["codigo"], recogida["orden"] = agente.app_orden(
+            json.dumps({"ts": ts, "firma": _firma(secreto, f"orden\n{ts}")}).encode(), "127.0.0.1")
+        return "enviado"
+    monkeypatch.setattr(agente, "ejecutar", lambda cmd, timeout=30: comandos.append(cmd) or "")
+    monkeypatch.setattr(agente, "_esperar_aviso", esperar)
     r = agente.whatsapp(json.dumps({"numero": "+34600123456", "texto": "Llego a las 8"}))
     assert r["automatico"] is True and r["enviado"] is True
-    orden = comandos[0]
-    extras = dict(zip(orden[orden.index("--es") + 1::3], orden[orden.index("--es") + 2::3]))
-    assert extras["texto"] == "Llego a las 8"
+    assert comandos[0][0] == "termux-open-url" and "wa.me/34600123456" in comandos[0][1]
+    assert recogida["codigo"] == 200
+    o = recogida["orden"]
     # La misma firma que comprueba la app (Orden.java): HMAC-SHA256(secreto, marca + "\n" + texto) en hex
-    esperada = _hmac.new(secreto.encode(), f"{extras['marca']}\nLlego a las 8".encode(), hashlib.sha256).hexdigest()
-    assert extras["firma"] == esperada
-    assert comandos[1][0] == "termux-open-url" and "wa.me/34600123456" in comandos[1][1]
+    assert o["texto"] == "Llego a las 8" and o["firma"] == _firma(secreto, f"{o['marca']}\nLlego a las 8")
+    # Después de usarla, la orden ya no está
+    ts = str(int(_time.time() * 1000))
+    assert agente.app_orden(json.dumps({"ts": ts, "firma": _firma(secreto, f"orden\n{ts}")}).encode(),
+                            "127.0.0.1")[0] == 204
+
+
+def test_pedir_orden_exige_movil_firma_y_tiempo(tmp_path, monkeypatch):
+    import time as _time
+
+    secreto = "s" * 64
+    ruta = tmp_path / "companion"
+    ruta.write_text(secreto)
+    monkeypatch.setattr(agente, "RUTA_COMPANION", str(ruta))
+    ts = str(int(_time.time() * 1000))
+    bueno = json.dumps({"ts": ts, "firma": _firma(secreto, f"orden\n{ts}")}).encode()
+    assert agente.app_orden(bueno, "100.78.85.68")[0] == 403  # ni por Tailscale: solo el propio móvil
+    assert agente.app_orden(json.dumps({"ts": ts, "firma": "0" * 64}).encode(), "127.0.0.1")[0] == 401
+    viejo = str(int(_time.time() * 1000) - 120_000)
+    assert agente.app_orden(json.dumps({"ts": viejo, "firma": _firma(secreto, f"orden\n{viejo}")}).encode(),
+                            "127.0.0.1")[0] == 401
+    assert agente.app_orden(bueno, "127.0.0.1")[0] == 204  # firma buena pero no hay nada pendiente
+
+
+def test_emparejar_solo_desde_el_movil_y_una_vez(tmp_path, monkeypatch):
+    ruta = tmp_path / "companion"
+    monkeypatch.setattr(agente, "RUTA_COMPANION", str(ruta))
+    assert agente.app_emparejar("100.78.85.68")[0] == 403
+    codigo, r = agente.app_emparejar("127.0.0.1")
+    assert codigo == 200 and len(r["secreto"]) == 64 and ruta.read_text() == r["secreto"]
+    assert agente.app_emparejar("127.0.0.1")[0] == 409  # otra app no puede quitarle el sitio
+    agente.companion_olvidar("")
+    assert agente.app_emparejar("127.0.0.1")[0] == 200
 
 
 def test_aviso_de_la_app_solo_desde_el_movil_y_firmado():

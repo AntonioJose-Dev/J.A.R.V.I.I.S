@@ -33,9 +33,12 @@ public class Inicio extends Activity {
         Button reconectar = new Button(this);
         reconectar.setText("Reconectar con JARVIS");
         reconectar.setOnClickListener(v -> {
-            Orden.olvidar(this);
-            Orden.registrar(this, "esperando a que JARVIS se conecte");
-            onResume();
+            estado.setText("Conectando con JARVIS…");
+            new Thread(() -> {
+                String r = Agente.emparejar(this);
+                Orden.registrar(this, "ok".equals(r) ? "conectada con JARVIS" : "no se pudo conectar: " + r);
+                runOnUiThread(this::onResume);
+            }).start();
         });
         l.addView(titulo);
         l.addView(estado);
