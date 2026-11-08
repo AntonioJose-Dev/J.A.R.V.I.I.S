@@ -283,6 +283,7 @@ class JarvisTelegram:
         entendido = await transcribir(audio_wav, "audio/wav", self.deepgram_key)
         if not entendido:
             return "", "No le he oído bien, señor.", await self.hablar("No le he oído bien, señor.")
+        log.info("Voz desde el móvil: %s", entendido)  # (igual que las notas de voz de Telegram: es una orden suya)
         respuesta = await self.pensar(chat, entendido)
         try:
             ogg = await self.hablar(respuesta)

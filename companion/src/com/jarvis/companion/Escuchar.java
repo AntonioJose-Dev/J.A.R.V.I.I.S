@@ -34,6 +34,13 @@ public class Escuchar extends Activity {
     private static final int TASA = 16000;
     private TextView estado;
     private volatile boolean activo = true;
+    /** La pantalla abierta (si la hay): el servicio la aparta cuando JARVIS tiene que usar el móvil. */
+    static volatile Escuchar abierta = null;
+
+    static void apartar() {
+        Escuchar e = abierta;
+        if (e != null) e.runOnUiThread(() -> e.moveTaskToBack(true));
+    }
 
     @Override
     protected void onCreate(Bundle b) {
@@ -56,6 +63,7 @@ public class Escuchar extends Activity {
         l.addView(titulo);
         l.addView(estado);
         setContentView(l);
+        abierta = this;
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             estado.setText("Necesito permiso para usar el micrófono");
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 1);
@@ -73,6 +81,7 @@ public class Escuchar extends Activity {
     @Override
     protected void onDestroy() {
         activo = false;
+        if (abierta == this) abierta = null;
         Palmadas.pausado = false;  // las palmadas vuelven a escuchar
         super.onDestroy();
     }
@@ -90,6 +99,7 @@ public class Escuchar extends Activity {
             }
             try {
                 new ToneGenerator(AudioManager.STREAM_MUSIC, 80).startTone(ToneGenerator.TONE_PROP_BEEP, 150);
+                Thread.sleep(350);  // que el pitido acabe ANTES de medir el ruido (si no, todo parecía silencio)
             } catch (Exception ignored) {
             }
             poner("Le escucho, señor…");
@@ -101,8 +111,7 @@ public class Escuchar extends Activity {
                 return;
             }
             poner("Pensando…");
-            // JARVIS puede necesitar usar el móvil: esta pantalla se aparta (la respuesta suena igual)
-            runOnUiThread(() -> moveTaskToBack(true));
+            // La pantalla se queda; solo se aparta si JARVIS necesita usar el móvil (lo avisa el servicio)
             try {
                 JSONObject r = enviar(wav);
                 poner("Usted: " + r.optString("entendido") + "\n\nJARVIS: " + r.optString("respuesta"));
@@ -124,7 +133,7 @@ public class Escuchar extends Activity {
         runOnUiThread(this::finish);
     }
 
-    /** Graba hasta que te callas (1,2 s de silencio tras hablar), máx. 15 s. Devuelve WAV o null si no hablaste. */
+    /** Graba hasta que te callas (1,6 s de silencio tras hablar), máx. 15 s. Devuelve WAV o null si no hablaste. */
     private byte[] grabar() {
         int min = AudioRecord.getMinBufferSize(TASA, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
         AudioRecord rec;
@@ -156,13 +165,13 @@ public class Escuchar extends Activity {
                 bytes[2 * i + 1] = (byte) ((trozo[i] >> 8) & 0xff);
             }
             pcm.write(bytes, 0, bytes.length);
-            double umbral = Math.max(350, fondo * 2.5);
+            double umbral = Math.max(300, Math.min(fondo, 1500) * 2.0);
             if (total > 3 && rms > umbral) {
                 hablo = true;
                 silencio = 0;
             } else if (hablo) {
                 silencio++;
-                if (silencio >= 12) break;
+                if (silencio >= 16) break;  // 1,6 s callado: ha terminado
             } else if (total > 60) {
                 break;  // 6 s sin decir nada
             }

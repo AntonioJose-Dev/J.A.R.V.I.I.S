@@ -128,6 +128,7 @@ public class Accesibilidad extends AccessibilityService {
                     Conexion.post(this, "/app/resultado", new JSONObject().put("id", id).put("estado", "recibido"), 10_000);
                     String tipo = t.getString("tipo");
                     boolean nuevo = !yaVisto(id);  // UNA sola comprobación (marca el encargo como visto)
+                    if (nuevo) Escuchar.apartar();  // JARVIS va a usar el móvil: la pantalla de «Hablar» se aparta
                     if (!nuevo) {
                         paso(id, "encargo repetido: ya lo tenía, no lo hago dos veces");
                     } else if ("whatsapp".equals(tipo)) {
