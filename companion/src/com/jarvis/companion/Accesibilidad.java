@@ -95,13 +95,20 @@ public class Accesibilidad extends AccessibilityService {
             String url = "https://wa.me/" + numero.replace("+", "") + "?text=" + URLEncoder.encode(texto, "UTF-8").replace("+", "%20");
             Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            String paquete = instalado("com.whatsapp") ? "com.whatsapp" : (instalado("com.whatsapp.w4b") ? "com.whatsapp.w4b" : null);
-            if (paquete == null) {
-                terminar(id, "error", "WhatsApp no está instalado");
-                return;
-            }
+            // WhatsApp normal y, si no, WhatsApp Business. Se intenta abrir de verdad (no basta con "verlo").
+            String paquete = instalado("com.whatsapp.w4b") && !instalado("com.whatsapp") ? "com.whatsapp.w4b" : "com.whatsapp";
             i.setPackage(paquete);
-            startActivity(i);
+            try {
+                startActivity(i);
+            } catch (android.content.ActivityNotFoundException sinApp) {
+                i.setPackage(paquete.equals("com.whatsapp") ? "com.whatsapp.w4b" : "com.whatsapp");
+                try {
+                    startActivity(i);
+                } catch (android.content.ActivityNotFoundException tampoco) {
+                    terminar(id, "error", "WhatsApp no está instalado (no se pudo abrir ni WhatsApp ni WhatsApp Business)");
+                    return;
+                }
+            }
         } catch (Exception e) {
             terminar(id, "error", "no pude abrir WhatsApp: " + e.getMessage());
             return;

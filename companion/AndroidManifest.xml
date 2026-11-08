@@ -3,12 +3,17 @@
      (orden firmada con un secreto y de hace menos de 60 segundos). Base de la futura app "Oye Jarvis". -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.jarvis.companion"
-    android:versionCode="6"
-    android:versionName="1.5">
+    android:versionCode="7"
+    android:versionName="1.6">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
     <!-- Para hablar con JARVIS en el PC por Tailscale (red privada y cifrada) -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Desde Android 11 una app solo "ve" las apps que declara aquí: sin esto, WhatsApp parece no instalado -->
+    <queries>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+    </queries>
 
     <application
         android:label="JARVIS"
