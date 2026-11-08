@@ -3,8 +3,8 @@
      (orden firmada con un secreto y de hace menos de 60 segundos). Base de la futura app "Oye Jarvis". -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.jarvis.companion"
-    android:versionCode="21"
-    android:versionName="2.3">
+    android:versionCode="22"
+    android:versionName="2.4">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
     <!-- Para hablar con JARVIS en el PC por Tailscale (red privada y cifrada) -->
@@ -46,6 +46,7 @@
             android:name=".Escuchar"
             android:exported="true"
             android:label="Hablar con JARVIS"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar.Fullscreen"
             android:launchMode="singleTask"
             android:excludeFromRecents="true"
             android:taskAffinity="com.jarvis.companion.escuchar">

@@ -13,6 +13,7 @@ import android.media.AudioManager;
 import android.os.Bundle;
 import android.util.Base64;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -42,28 +43,80 @@ public class Escuchar extends Activity {
         if (e != null) e.runOnUiThread(() -> e.moveTaskToBack(true));
     }
 
+    private Reactor reactor;
+    private TextView fase, transcripcion, reloj, sistema;
+    private static final int CIAN = Color.parseColor("#4FD8FF");
+    private static final int CIAN_TENUE = Color.parseColor("#7FB8CC");
+
+    private TextView texto(float tam, int color, boolean mono) {
+        TextView t = new TextView(this);
+        t.setTextSize(tam);
+        t.setTextColor(color);
+        if (mono) t.setTypeface(android.graphics.Typeface.MONOSPACE);
+        t.setLetterSpacing(0.12f);
+        return t;
+    }
+
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
-        LinearLayout l = new LinearLayout(this);
-        l.setOrientation(LinearLayout.VERTICAL);
-        l.setGravity(Gravity.CENTER);
-        l.setPadding(48, 48, 48, 48);
-        l.setBackgroundColor(Color.parseColor("#E6101820"));
-        TextView titulo = new TextView(this);
+        // HUD: capa oscura translúcida sobre lo que tengas abierto, con el reactor en el centro
+        android.widget.FrameLayout raiz = new android.widget.FrameLayout(this);
+        raiz.setBackgroundColor(Color.parseColor("#E0020A12"));
+        int ancho = getResources().getDisplayMetrics().widthPixels;
+        int m = (int) (ancho * 0.05f);
+
+        LinearLayout arribaIzq = new LinearLayout(this);
+        arribaIzq.setOrientation(LinearLayout.VERTICAL);
+        TextView titulo = texto(22, CIAN, true);
         titulo.setText("J.A.R.V.I.S.");
-        titulo.setTextColor(Color.parseColor("#4FC3F7"));
-        titulo.setTextSize(30);
-        titulo.setGravity(Gravity.CENTER);
-        estado = new TextView(this);
-        estado.setTextColor(Color.WHITE);
-        estado.setTextSize(18);
-        estado.setGravity(Gravity.CENTER);
-        estado.setPadding(0, 40, 0, 0);
-        l.addView(titulo);
-        l.addView(estado);
-        setContentView(l);
+        titulo.setShadowLayer(18, 0, 0, CIAN);
+        sistema = texto(10, CIAN_TENUE, true);
+        arribaIzq.addView(titulo);
+        arribaIzq.addView(sistema);
+        android.widget.FrameLayout.LayoutParams p1 = new android.widget.FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
+        p1.setMargins(m, m * 2, m, m);
+        raiz.addView(arribaIzq, p1);
+
+        reloj = texto(11, CIAN_TENUE, true);
+        reloj.setGravity(Gravity.END);
+        android.widget.FrameLayout.LayoutParams p2 = new android.widget.FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
+        p2.setMargins(m, m * 2, m, m);
+        raiz.addView(reloj, p2);
+
+        LinearLayout centro = new LinearLayout(this);
+        centro.setOrientation(LinearLayout.VERTICAL);
+        centro.setGravity(Gravity.CENTER_HORIZONTAL);
+        reactor = new Reactor(this);
+        centro.addView(reactor, new LinearLayout.LayoutParams((int) (ancho * 0.78f), (int) (ancho * 0.78f)));
+        fase = texto(13, CIAN, true);
+        fase.setGravity(Gravity.CENTER);
+        fase.setShadowLayer(12, 0, 0, CIAN);
+        fase.setPadding(0, m / 2, 0, m / 2);
+        centro.addView(fase);
+        transcripcion = texto(14, Color.parseColor("#E6F7FF"), true);
+        transcripcion.setLetterSpacing(0.02f);
+        transcripcion.setGravity(Gravity.CENTER);
+        transcripcion.setPadding(m, 0, m, 0);
+        centro.addView(transcripcion);
+        raiz.addView(centro, new android.widget.FrameLayout.LayoutParams(-1, -2, Gravity.CENTER));
+
+        // Línea de escaneo que recorre la pantalla
+        View escaneo = new View(this);
+        escaneo.setBackgroundColor(Color.parseColor("#334FD8FF"));
+        raiz.addView(escaneo, new android.widget.FrameLayout.LayoutParams(-1, 3, Gravity.TOP));
+        android.animation.ObjectAnimator barrido = android.animation.ObjectAnimator.ofFloat(escaneo, "translationY", 0,
+                getResources().getDisplayMetrics().heightPixels);
+        barrido.setDuration(3500);
+        barrido.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        barrido.start();
+
+        setContentView(raiz);
+        raiz.setAlpha(0f);
+        raiz.animate().alpha(1f).setDuration(350).start();  // aparece suave
+        actualizarHud();
         abierta = this;
+        estado = transcripcion;
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             estado.setText("Necesito permiso para usar el micrófono");
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 1);
@@ -90,6 +143,48 @@ public class Escuchar extends Activity {
         runOnUiThread(() -> estado.setText(s));
     }
 
+    /** Estado del reactor y rótulo (ESCUCHANDO, PROCESANDO, RESPONDIENDO…). */
+    private void fase(int e, String rotulo) {
+        runOnUiThread(() -> {
+            reactor.estado(e);
+            fase.setText(rotulo);
+        });
+    }
+
+    /** La respuesta de JARVIS se escribe letra a letra, como en una consola. */
+    private void escribir(String cabecera, String frase) {
+        runOnUiThread(() -> {
+            final StringBuilder sb = new StringBuilder();
+            final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+            final int[] i = {0};
+            h.post(new Runnable() {
+                @Override
+                public void run() {
+                    if (i[0] < frase.length()) {
+                        sb.append(frase.charAt(i[0]++));
+                        transcripcion.setText(cabecera + sb + "▌");
+                        h.postDelayed(this, 18);
+                    } else {
+                        transcripcion.setText(cabecera + sb);
+                    }
+                }
+            });
+        });
+    }
+
+    /** Esquinas del HUD: hora, fecha, batería y enlace con el PC (se refrescan cada segundo). */
+    private void actualizarHud() {
+        java.util.Date ahora = new java.util.Date();
+        reloj.setText(new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT).format(ahora) + "\n"
+                + new java.text.SimpleDateFormat("EEE dd MMM yyyy", new java.util.Locale("es", "ES")).format(ahora).toUpperCase());
+        android.os.BatteryManager bm = (android.os.BatteryManager) getSystemService(BATTERY_SERVICE);
+        int bat = bm == null ? -1 : bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY);
+        String enlace = Accesibilidad.activa ? "ENLACE PC ▪ ACTIVO" : "ENLACE PC ▪ —";
+        sistema.setText("SISTEMA EN LÍNEA\n" + enlace + "\nENERGÍA ▪ " + (bat >= 0 ? bat + "%" : "—")
+                + (Palmadas.corriendo ? "\nSENSOR ACÚSTICO ▪ ON" : ""));
+        if (activo) reloj.postDelayed(this::actualizarHud, 1000);
+    }
+
     private void empezar() {
         Palmadas.pausado = true;  // el micrófono es para escucharte a ti
         new Thread(() -> {
@@ -97,21 +192,25 @@ public class Escuchar extends Activity {
                 Thread.sleep(Palmadas.corriendo ? 400 : 0);  // que el detector de palmadas suelte el micrófono
             } catch (InterruptedException ignored) {
             }
+            fase(Reactor.HABLANDO, "EN LÍNEA");
             saludar();  // "¿Sí, señor? Aquí estoy." con su voz, al instante (guardado en el móvil)
             // Conversación: tras cada respuesta sigue escuchando; si no dices nada en unos segundos, se cierra
             for (int vuelta = 0; vuelta < 8 && activo; vuelta++) {
-                poner(vuelta == 0 ? "Le escucho, señor…" : "¿Algo más, señor?");
+                fase(Reactor.ESCUCHANDO, "● ESCUCHANDO");
+                if (vuelta > 0) poner("¿Algo más, señor?");
                 if (vuelta > 0) pitido();
                 byte[] wav = grabar();
+                runOnUiThread(() -> reactor.nivel(0));
                 if (wav == null) {
                     poner(vuelta == 0 ? "No le he oído. Vuelva a intentarlo." : "A su servicio, señor.");
                     break;
                 }
-                poner("Pensando…");
+                fase(Reactor.PENSANDO, "PROCESANDO…");
                 // La pantalla se queda; solo se aparta si JARVIS necesita usar el móvil (lo avisa el servicio)
                 try {
                     JSONObject r = enviar(wav);
-                    poner("Usted: " + r.optString("entendido") + "\n\nJARVIS: " + r.optString("respuesta"));
+                    fase(Reactor.HABLANDO, "RESPONDIENDO");
+                    escribir("› " + r.optString("entendido") + "\n\n", r.optString("respuesta"));
                     String audio = r.optString("audio");
                     if (!audio.isEmpty()) reproducir(Base64.decode(audio, Base64.DEFAULT));
                 } catch (Exception e) {
@@ -123,6 +222,7 @@ public class Escuchar extends Activity {
                 if (!hasWindowFocus() && !Palmadas.corriendo) break;
             }
             Palmadas.pausado = false;
+            fase(Reactor.ESPERA, "EN ESPERA");
             cerrarEn(1200);
         }, "jarvis-escuchar").start();
     }
@@ -199,6 +299,8 @@ public class Escuchar extends Activity {
             double suma = 0;
             for (int i = 0; i < n; i++) suma += (double) trozo[i] * trozo[i];
             double rms = Math.sqrt(suma / n);
+            final float nv = (float) Math.min(1.0, rms / 2500.0);
+            runOnUiThread(() -> reactor.nivel(nv));  // el reactor late con tu voz
             if (total <= 3) {  // los primeros 300 ms miden el ruido de fondo
                 fondo = fondo < 0 ? rms : (fondo + rms) / 2;
             }
