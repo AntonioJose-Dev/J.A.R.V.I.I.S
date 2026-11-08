@@ -224,6 +224,8 @@ class JarvisTelegram:
         self.deepgram_key = os.getenv("DEEPGRAM_API_KEY", "").strip()
         self.historiales: dict[int, llm.ChatContext] = {}
         self.jarvis_por_chat: dict[int, Jarvis] = {}
+        self.cerrojos: dict[int, asyncio.Lock] = {}
+        self.en_curso: dict[int, set[asyncio.Future]] = {}
         self.http: aiohttp.ClientSession | None = None
 
     async def iniciar(self, app: Application) -> None:
@@ -275,10 +277,39 @@ class JarvisTelegram:
         if jarvis is None:
             jarvis = self.jarvis_por_chat[chat_id] = Jarvis(self.memory)
         jarvis.preferir_movil = True  # en Telegram estás con el móvil: "abre X" es en el móvil
-        respuesta = await responder(self.cerebro, jarvis, historial, texto)
+        # Una cosa cada vez por chat (para no mezclar la conversación); la tarea queda apuntada para «Jarvis, para»
+        async with self.cerrojos.setdefault(chat_id, asyncio.Lock()):
+            tarea = asyncio.ensure_future(responder(self.cerebro, jarvis, historial, texto))
+            self.en_curso.setdefault(chat_id, set()).add(tarea)
+            try:
+                respuesta = await asyncio.shield(tarea)
+            except asyncio.CancelledError:
+                if not tarea.cancelled():
+                    raise
+                return "Parado, señor."
+            finally:
+                self.en_curso.get(chat_id, set()).discard(tarea)
         historial.truncate(max_items=HISTORIAL_MAX)
         log.info("Respuesta en %.2f s", time.perf_counter() - t0)
         return respuesta
+
+    async def parar(self, chat_id: int) -> str:
+        """«Jarvis, para»: corta lo que esté haciendo y cancela todo lo pendiente (también llamadas en curso)."""
+        from . import parada
+
+        tareas = 0
+        for t in list(self.en_curso.get(chat_id, set())):
+            if not t.done():
+                t.cancel()
+                tareas += 1
+        r = await asyncio.to_thread(parada.cancelar_pendientes)
+        try:
+            llamadas = await parada.colgar_llamadas()
+        except Exception:
+            log.exception("No pude colgar las llamadas")
+            llamadas = 0
+        log.info("Parada de emergencia: %s, llamadas %d, tareas %d", r, llamadas, tareas)
+        return parada.resumen(r, llamadas, tareas)
 
     async def hablar(self, texto: str) -> bytes:
         texto = limpiar_para_voz(texto)
@@ -321,6 +352,11 @@ class JarvisTelegram:
         log.info("Voz desde el móvil (%d caracteres)", len(entendido))  # lo dicho no va al log
         if re.fullmatch(r"\W*(oye\W+)?(jarvis|yarvis|hola|hey|eh)\W*", entendido.lower()):
             frase = "Dígame, señor."  # solo me ha llamado: contesto al momento y la app sigue escuchando
+            return entendido, frase, await self.hablar(frase)
+        from .parada import es_parada
+
+        if es_parada(entendido):  # «Jarvis, para» desde el móvil
+            frase = (await self.parar(chat)).replace("🛑 ", "")
             return entendido, frase, await self.hablar(frase)
         respuesta = await self.atajo(chat, entendido)  # órdenes comunes: al momento, sin pensar
         if respuesta is None:
@@ -574,6 +610,12 @@ class JarvisTelegram:
             return
         tipo = tipo_de_mensaje(msg.text, msg.voice is not None)
         accion = decidir(user.id if user else None, self.permitidos, tipo)
+        if accion == "texto" and msg.forward_origin is None:
+            from .parada import es_parada
+
+            if es_parada(msg.text):  # «Jarvis, para»: lo primero de todo, sin esperar a nada
+                await msg.reply_text(await self.parar(msg.chat_id))
+                return
         if accion == "texto" and msg.forward_origin is not None:  # mensaje de texto reenviado: es de otra persona
             try:
                 respuesta = await self.pensar(msg.chat_id, f"[Te reenvío un mensaje de OTRA persona{de_quien(msg)} (es "
@@ -641,6 +683,11 @@ class JarvisTelegram:
                     await msg.reply_text("No le he entendido, señor. ¿Puede repetirlo?")
                     return
                 log.info("Nota de voz transcrita (%d caracteres)", len(texto))  # lo dicho no va al log
+                from .parada import es_parada
+
+                if es_parada(texto):  # «Jarvis, para» por voz
+                    await msg.reply_text(await self.parar(msg.chat_id))
+                    return
                 respuesta = await self.atajo(msg.chat_id, texto) or await self.pensar(msg.chat_id, texto)
             await self.contestar(msg, context, respuesta, me_mando_audio=accion == "voz")
         except Exception as e:
@@ -662,7 +709,9 @@ def main() -> None:
     except ValueError as e:
         sys.exit(f"ERROR: {e}")
     print(f"JARVIS en Telegram: {bot.plan.describir()}. Ctrl+C para parar.")
-    app = Application.builder().token(token).post_init(bot.iniciar).post_shutdown(bot.cerrar).build()
+    # Varios mensajes a la vez: así «Jarvis, para» llega aunque JARVIS esté ocupado con otra cosa
+    app = (Application.builder().token(token).concurrent_updates(True)
+           .post_init(bot.iniciar).post_shutdown(bot.cerrar).build())
     app.add_handler(CallbackQueryHandler(bot.boton_llamada, pattern=r"^(llamar|cancelar):"))
     app.add_handler(CallbackQueryHandler(bot.boton_accion, pattern=r"^(pc|acc):"))
     app.add_handler(MessageHandler(filters.ALL, bot.manejar))

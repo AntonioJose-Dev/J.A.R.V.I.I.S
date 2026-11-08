@@ -278,7 +278,8 @@ def crear_cerebro(plan: Plan) -> llm.LLM:
         return _un_cerebro(nombres[0])
     # Si uno falla (p. ej. límite por minuto), sigue con el siguiente sin cortar la conversación.
     # El que falló queda "en reposo" y LiveKit lo vuelve a probar en segundo plano hasta que se recupera.
-    adaptador = llm.FallbackAdapter([_un_cerebro(n) for n in nombres], attempt_timeout=20.0)
+    # Disyuntor: si uno tarda más de 8 s o falla, se aparta y se usa el siguiente; LiveKit lo vuelve a probar solo
+    adaptador = llm.FallbackAdapter([_un_cerebro(n) for n in nombres], attempt_timeout=8.0)
     etiquetas = {id(m): n for m, n in zip(adaptador._llm_instances, nombres)} if hasattr(adaptador, "_llm_instances") else {}
 
     def _aviso(ev) -> None:
