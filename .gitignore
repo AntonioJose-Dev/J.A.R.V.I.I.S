@@ -13,3 +13,9 @@ build/
 
 # Modelos locales (embeddings de la memoria): se descargan solos
 modelos/
+
+# Archivos auxiliares de SQLite (modo WAL): contienen datos personales, NUNCA al repositorio
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite*
