@@ -307,7 +307,7 @@ class JarvisTelegram:
         t1 = time.perf_counter()
         if not entendido:
             return "", "No le he oído bien, señor.", await self.hablar("No le he oído bien, señor.")
-        log.info("Voz desde el móvil: %s", entendido)  # (igual que las notas de voz de Telegram: es una orden suya)
+        log.info("Voz desde el móvil (%d caracteres)", len(entendido))  # lo dicho no va al log
         if re.fullmatch(r"\W*(oye\W+)?(jarvis|yarvis|hola|hey|eh)\W*", entendido.lower()):
             frase = "Dígame, señor."  # solo me ha llamado: contesto al momento y la app sigue escuchando
             return entendido, frase, await self.hablar(frase)
@@ -585,7 +585,7 @@ class JarvisTelegram:
                 if not texto:
                     await msg.reply_text("No le he entendido, señor. ¿Puede repetirlo?")
                     return
-                log.info("Nota de voz transcrita: %s", texto)
+                log.info("Nota de voz transcrita (%d caracteres)", len(texto))  # lo dicho no va al log
                 respuesta = await self.atajo(msg.chat_id, texto) or await self.pensar(msg.chat_id, texto)
             await self.contestar(msg, context, respuesta, me_mando_audio=accion == "voz")
         except Exception as e:

@@ -56,7 +56,16 @@ def prefijos_permitidos() -> tuple[str, ...]:
     return tuple(p.strip() if p.strip().startswith("+") else "+" + p.strip() for p in valor.split(",") if p.strip())
 
 
+# Números que JARVIS nunca marca: tarificación especial (pueden costar mucho), servicios de información y emergencias
+# (a emergencias llama una persona, no una IA).
+PROHIBIDOS_ES = ("+34803", "+34806", "+34807", "+34905", "+34901", "+34902", "+34118", "+34112", "+34091",
+                 "+34092", "+34061", "+34062", "+34016", "+34080", "+34085", "+34088")
+EMERGENCIAS = re.compile(r"^\+?(112|911|999|091|092|061|062|080|085|088|016|024)$")
+
+
 def numero_permitido(numero: str, prefijos: tuple[str, ...] | None = None) -> bool:
+    if EMERGENCIAS.match(numero.replace(" ", "")) or numero.startswith(PROHIBIDOS_ES):
+        return False
     return numero.startswith(tuple(prefijos or prefijos_permitidos()))
 
 
