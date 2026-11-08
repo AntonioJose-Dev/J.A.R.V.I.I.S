@@ -117,6 +117,42 @@ public class Accesibilidad extends AccessibilityService {
             terminar(id, "error", "orden sin número o sin texto");
             return;
         }
+        // Con el móvil bloqueado (PIN/huella) WhatsApp se abriría DETRÁS de la pantalla de bloqueo y no se
+        // podría pulsar Enviar. Se espera a que el dueño desbloquee (máx. 3 min); JARVIS le avisa por Telegram.
+        android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+        if (km != null && km.isKeyguardLocked()) {
+            paso(id, "esperando desbloqueo del móvil");
+            final boolean[] hecho = {false};
+            final android.content.BroadcastReceiver alDesbloquear = new android.content.BroadcastReceiver() {
+                @Override
+                public void onReceive(android.content.Context c, Intent in) {
+                    if (hecho[0]) return;
+                    hecho[0] = true;
+                    try {
+                        unregisterReceiver(this);
+                    } catch (Exception ignored) {
+                    }
+                    paso(id, "móvil desbloqueado");
+                    principal.postDelayed(() -> empezarWhatsapp(id, numero, texto), 600);
+                }
+            };
+            android.content.IntentFilter filtro = new android.content.IntentFilter(Intent.ACTION_USER_PRESENT);
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(alDesbloquear, filtro, RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(alDesbloquear, filtro);
+            }
+            principal.postDelayed(() -> {
+                if (hecho[0]) return;
+                hecho[0] = true;
+                try {
+                    unregisterReceiver(alDesbloquear);
+                } catch (Exception ignored) {
+                }
+                terminar(id, "error", "el móvil siguió bloqueado 3 minutos, así que no se envió");
+            }, 180_000);
+            return;
+        }
         trabajoId = id;
         textoEsperado = texto;
         caduca = System.currentTimeMillis() + 30_000;

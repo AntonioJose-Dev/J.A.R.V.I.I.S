@@ -26,6 +26,7 @@ PUERTO = int(os.getenv("JARVIS_APP_PUERTO", "8800"))
 ESPERA_LARGA = 25          # segundos que la app espera por trabajo en cada petición
 EN_LINEA_SI = 90           # la app cuenta como conectada si habló con el PC hace menos de esto
 ESPERA_RESULTADO = 45      # cuánto espera JARVIS a que la app termine un envío
+ESPERA_DESBLOQUEO = 230    # ...o, si el móvil está bloqueado, a que el dueño lo desbloquee (la app espera 3 min)
 
 
 # --- Base de datos compartida (todas las partes de JARVIS usan el mismo archivo) -------------------
@@ -116,7 +117,8 @@ def _guardar_paso(trabajo_id: int, paso: str) -> None:
 
 def esperar_resultado(trabajo_id: int, segundos: float = ESPERA_RESULTADO) -> tuple[str, str]:
     """(estado, detalle) cuando la app termine; ('sin_respuesta', motivo) si no contesta a tiempo."""
-    fin = time.time() + segundos
+    inicio = time.time()
+    fin = inicio + segundos
     fila = None
     while time.time() < fin:
         db = _db()
@@ -124,6 +126,8 @@ def esperar_resultado(trabajo_id: int, segundos: float = ESPERA_RESULTADO) -> tu
         db.close()
         if fila and fila[0] not in EN_CURSO:
             return fila[0], fila[1] or ""
+        if fila and (fila[2] or "").startswith(("esperando desbloqueo", "móvil desbloqueado")):
+            fin = max(fin, inicio + ESPERA_DESBLOQUEO)  # la app espera a que el dueño desbloquee (máx. 3 min)
         time.sleep(0.5)
     if fila and fila[0] == "recibido":
         motivo = f"la app lo recibió pero no terminó a tiempo (último paso: {fila[2] or 'ninguno'})"
@@ -173,7 +177,22 @@ async def _hola(request: web.Request) -> web.Response:
     if datos.get("paso") and str(datos.get("id", "")).isdigit():
         await asyncio.to_thread(_guardar_paso, int(datos["id"]), str(datos["paso"]))
         log.info("App, trabajo %s: %s", datos["id"], str(datos["paso"])[:200])
+        if str(datos["paso"]).startswith("esperando desbloqueo"):
+            await asyncio.to_thread(avisar_desbloqueo)
     return web.json_response({"ok": True})
+
+
+def avisar_desbloqueo() -> None:
+    """El WhatsApp está confirmado pero el móvil está bloqueado: se le pide al dueño que lo desbloquee."""
+    from . import telegram_api
+
+    try:
+        chat = telegram_api.chat_del_dueno()
+        if chat is not None:
+            telegram_api.telegram("sendMessage", chat_id=chat,
+                                  text="🔒 Desbloquea el móvil y JARVIS enviará el WhatsApp (tienes 3 minutos).")
+    except Exception as e:  # el aviso es una ayuda; si falla, el envío sigue esperando igual
+        log.warning("No pude avisar por Telegram de que desbloquee el móvil: %s", e)
 
 
 async def _espera(request: web.Request) -> web.Response:

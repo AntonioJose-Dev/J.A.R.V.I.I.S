@@ -89,6 +89,33 @@ def test_recibido_y_ultimo_paso_explican_un_atasco():
     assert estado_ == "sin_respuesta" and "WhatsApp abierto en pantalla" in motivo
 
 
+def test_movil_bloqueado_avisa_y_espera_mas(monkeypatch):
+    avisos = []
+    monkeypatch.setattr(app_movil, "avisar_desbloqueo", lambda: avisos.append(1))
+    monkeypatch.setattr(app_movil, "ESPERA_DESBLOQUEO", 2.5)
+    tid = app_movil.encargar("whatsapp", {"numero": "+34600123456", "texto": "hola"})
+    app_movil._siguiente_trabajo(True)
+    app_movil._guardar_resultado(tid, "recibido", "")
+    app_movil._guardar_paso(tid, "esperando desbloqueo del móvil")
+
+    def desbloquea_y_envia():
+        import time
+        time.sleep(1.5)  # más que la espera normal (1 s): sin la ampliación se daría por fallido
+        app_movil._guardar_resultado(tid, "enviado", "WhatsApp enviado")
+    threading.Thread(target=desbloquea_y_envia).start()
+    assert app_movil.esperar_resultado(tid, 1) == ("enviado", "WhatsApp enviado")
+
+
+async def test_paso_de_bloqueo_avisa_por_telegram(monkeypatch):
+    avisos = []
+    monkeypatch.setattr(app_movil, "avisar_desbloqueo", lambda: avisos.append(1))
+    c = await _cliente()
+    tid = app_movil.encargar("whatsapp", {"numero": "+34600123456", "texto": "hola"})
+    await c.post("/app/hola", json={"id": tid, "paso": "esperando desbloqueo del móvil"}, headers={"X-Jarvis-Token": TOKEN})
+    assert avisos == [1]
+    await c.close()
+
+
 def test_un_acuse_tardio_no_pisa_el_resultado():
     tid = app_movil.encargar("whatsapp", {"numero": "+34600123456", "texto": "hola"})
     app_movil._siguiente_trabajo(True)
