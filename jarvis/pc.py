@@ -252,7 +252,7 @@ def preparar_accion(accion: str, objetivo: str) -> tuple[dict, str]:
             raise ValueError("falta el texto")
         from .manos import es_secreto
 
-        if es_secreto({}, objetivo) or re.search(r"(?i)(contrase|password|\bpin\b|clave)\s*[:=]", objetivo):
+        if es_secreto({}, objetivo) or re.search(r"(?i)(contrase\w*|password|\bpin\b|clave)\s*[:=]", objetivo):
             raise ValueError("eso parece una contraseña, un código o datos de pago: no lo escribo yo, que lo escriba el dueño")
         corto = objetivo if len(objetivo) <= 120 else objetivo[:117] + "…"
         return {"accion": accion, "objetivo": objetivo[:2000]}, f"escribir en la ventana activa: «{corto}»"
