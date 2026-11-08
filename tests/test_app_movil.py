@@ -1,6 +1,5 @@
 """Servidor del PC para la app JARVIS del móvil: código secreto, entrega de trabajos y resultados."""
 
-import asyncio
 import threading
 
 import pytest

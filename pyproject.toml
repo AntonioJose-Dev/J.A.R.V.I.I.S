@@ -1,6 +1,6 @@
 [project]
 name = "jarvis"
-version = "0.1.0"
+version = "0.5.0"
 description = "Asistente personal por voz tipo J.A.R.V.I.S."
 requires-python = ">=3.11"
 dependencies = [
@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.6"]
 pruebas = ["sounddevice>=0.4", "numpy>=1.24", "httpx>=0.25"]
 
 [project.scripts]
@@ -35,3 +35,11 @@ packages = ["jarvis"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+# Lo esencial: errores de sintaxis, nombres sin definir e imports que sobran
+select = ["E9", "F63", "F7", "F82", "F401"]
