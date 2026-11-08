@@ -111,11 +111,14 @@ public class Accesibilidad extends AccessibilityService {
                     // Acuse de recibo: si no llega, el PC lo reentrega (por si la entrega se perdió por el camino)
                     Conexion.post(this, "/app/resultado", new JSONObject().put("id", id).put("estado", "recibido"), 10_000);
                     String tipo = t.getString("tipo");
-                    if (!yaVisto(id) && "whatsapp".equals(tipo)) {
+                    boolean nuevo = !yaVisto(id);  // UNA sola comprobación (marca el encargo como visto)
+                    if (!nuevo) {
+                        paso(id, "encargo repetido: ya lo tenía, no lo hago dos veces");
+                    } else if ("whatsapp".equals(tipo)) {
                         JSONObject d = t.getJSONObject("datos");
                         paso(id, "recibido; abriendo WhatsApp");
                         principal.post(() -> empezarWhatsapp(id, d.optString("numero"), d.optString("texto"), null));
-                    } else if (!yaVisto(id) && "whatsapp_audio".equals(tipo)) {
+                    } else if ("whatsapp_audio".equals(tipo)) {
                         JSONObject d = t.getJSONObject("datos");
                         paso(id, "recibido; descargando el audio");
                         Uri audio;
@@ -127,6 +130,8 @@ public class Accesibilidad extends AccessibilityService {
                         }
                         paso(id, "audio listo y comprobado; abriendo WhatsApp");
                         principal.post(() -> empezarWhatsapp(id, d.optString("numero"), null, audio));
+                    } else {
+                        terminar(id, "error", "esta versión de la app no sabe hacer «" + tipo + "»");
                     }
                 } catch (Exception e) {
                     Conexion.error(this, "trabajo ilegible: " + e.getMessage());
