@@ -60,6 +60,27 @@ def test_busca_con_tavily_si_hay_clave_y_si_falla_con_el_libre(monkeypatch):
     assert internet.buscar("algo")[0]["titulo"] == "t"
 
 
+def test_noticias_de_google_en_espanol(monkeypatch):
+    rss = """<?xml version="1.0"?><rss><channel>
+      <item><title>Sube la luz en noviembre - El País</title><link>https://n.es/1</link>
+        <pubDate>Sat, 08 Nov 2026 09:00:00 GMT</pubDate><source url="https://elpais.com">El País</source></item>
+      <item><title>Gana el Madrid - Marca</title><link>https://n.es/2</link>
+        <pubDate>Fri, 07 Nov 2026 21:00:00 GMT</pubDate><source url="https://marca.com">Marca</source></item>
+    </channel></rss>"""
+    pedido = {}
+
+    def get(url, params, **k):
+        pedido.update(url=url, params=params)
+        return httpx.Response(200, content=rss.encode(), request=httpx.Request("GET", url))
+    monkeypatch.setattr(internet.httpx, "get", get)
+    res = internet.buscar("Real Madrid", 6, noticias=True)
+    assert res[0] == {"titulo": "Sube la luz en noviembre", "url": "https://n.es/1", "resumen": "",
+                      "fuente": "El País", "fecha": "2026-11-08"}
+    assert pedido["params"]["gl"] == "ES" and "Real Madrid" in pedido["params"]["q"]
+    internet.buscar("", 6, noticias=True)
+    assert pedido["url"] == internet.GNEWS and "q" not in pedido["params"]  # sin tema: portada de España
+
+
 def test_prevision_del_tiempo(monkeypatch):
     datos = {"current": {"temperature_2m": 21.4, "apparent_temperature": 22, "weather_code": 3,
                          "wind_speed_10m": 9, "relative_humidity_2m": 60},
