@@ -17,7 +17,7 @@ import java.nio.charset.StandardCharsets;
  * La dirección del PC y el código secreto van dentro de la app (se ponen al compilarla).
  */
 final class Conexion {
-    static final String VERSION = "1.8";
+    static final String VERSION = "1.9";
 
     private Conexion() {}
 
@@ -61,6 +61,38 @@ final class Conexion {
         } catch (Exception e) {
             return new Object[]{-1, e.getClass().getSimpleName() + ": " + e.getMessage()};
         }
+    }
+
+    /** Descarga un archivo del PC (p. ej. un audio). Lanza una excepción con el motivo si no se puede. */
+    static byte[] descargar(Context c, String ruta, JSONObject datos, int esperaMs) throws Exception {
+        HttpURLConnection con = (HttpURLConnection) new URL(c.getString(R.string.servidor_jarvis) + ruta).openConnection();
+        con.setRequestMethod("POST");
+        con.setConnectTimeout(8000);
+        con.setReadTimeout(esperaMs);
+        con.setDoOutput(true);
+        con.setRequestProperty("Content-Type", "application/json");
+        con.setRequestProperty("X-Jarvis-Token", c.getString(R.string.token_jarvis));
+        datos.put("version", VERSION);
+        datos.put("accesibilidad", Accesibilidad.activa);
+        try (OutputStream os = con.getOutputStream()) {
+            os.write(datos.toString().getBytes(StandardCharsets.UTF_8));
+        }
+        int codigo = con.getResponseCode();
+        if (codigo != 200) {
+            con.disconnect();
+            throw new Exception("el PC respondió " + codigo);
+        }
+        ByteArrayOutputStream b = new ByteArrayOutputStream();
+        try (InputStream in = con.getInputStream()) {
+            byte[] buf = new byte[16384];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                b.write(buf, 0, n);
+                if (b.size() > 5_000_000) throw new Exception("audio demasiado grande");
+            }
+        }
+        con.disconnect();
+        return b.toByteArray();
     }
 
     /** Avisa al PC de un error (así se puede ver sin capturas de pantalla). */

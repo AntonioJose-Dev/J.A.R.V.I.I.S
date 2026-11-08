@@ -167,6 +167,65 @@ def test_si_la_app_falla_se_dice_y_no_se_da_por_enviado(monkeypatch):
         movil.ejecutar_accion({"accion": "mensaje", "app": "whatsapp", "numero": "+34600123456", "texto": "hola"})
 
 
+def test_audio_de_whatsapp_se_prepara_con_su_texto():
+    datos, desc = movil.preparar_mensaje("whatsapp", "madre", "+34600123456", "Llego a las 8", audio=True)
+    assert datos["audio"] is True and "AUDIO" in desc and "«Llego a las 8»" in desc
+    with pytest.raises(ValueError, match="solo"):
+        movil.preparar_mensaje("sms", "madre", "+34600123456", "hola", audio=True)
+
+
+def test_audio_va_a_la_app_con_su_huella_y_se_comprueba(monkeypatch, tmp_path):
+    from jarvis import audio
+
+    monkeypatch.setattr(audio, "CARPETA", tmp_path / "audios")
+    monkeypatch.setattr(audio, "generar", lambda texto: audio.guardar(b"OggS-audio-de-prueba"))
+    app_movil.guardar_estado(ultimo_contacto=__import__("time").time())
+    vistos = {}
+
+    def app_falsa():
+        import time
+        for _ in range(40):
+            t = app_movil._siguiente_trabajo()
+            if t:
+                vistos.update(t)
+                app_movil._guardar_resultado(t["id"], "enviado", "Audio enviado")
+                return
+            time.sleep(0.1)
+    threading.Thread(target=app_falsa).start()
+    r = movil.ejecutar_accion({"accion": "mensaje", "app": "whatsapp", "numero": "+34600123456",
+                               "texto": "Llego a las 8", "audio": True})
+    assert "Audio" in r and vistos["tipo"] == "whatsapp_audio"
+    import hashlib
+    assert vistos["datos"]["sha256"] == hashlib.sha256(b"OggS-audio-de-prueba").hexdigest()
+    assert "texto" not in vistos["datos"]  # al móvil solo le llega el audio, no hace falta más
+
+
+async def test_el_audio_solo_se_entrega_si_hay_un_encargo_en_marcha(monkeypatch, tmp_path):
+    from jarvis import audio
+
+    monkeypatch.setattr(audio, "CARPETA", tmp_path / "audios")
+    huella = audio.guardar(b"OggS-123")
+    app = web.Application()
+    app.add_routes([web.post("/app/audio", app_movil._audio)])
+    c = TestClient(TestServer(app))
+    await c.start_server()
+    h = {"X-Jarvis-Token": TOKEN}
+    assert (await c.post("/app/audio", json={"sha256": huella})).status == 401          # sin código
+    assert (await c.post("/app/audio", json={"sha256": huella}, headers=h)).status == 404  # sin encargo
+    app_movil.encargar("whatsapp_audio", {"numero": "+34600123456", "sha256": huella})
+    app_movil._siguiente_trabajo(True)
+    r = await c.post("/app/audio", json={"sha256": huella}, headers=h)
+    assert r.status == 200 and await r.read() == b"OggS-123"
+    assert (await c.post("/app/audio", json={"sha256": "../../.env"}, headers=h)).status == 404
+    await c.close()
+
+
+def test_sin_app_no_hay_audio(monkeypatch):
+    with pytest.raises(RuntimeError, match="NO se ha enviado el audio"):
+        movil.ejecutar_accion({"accion": "mensaje", "app": "whatsapp", "numero": "+34600123456",
+                               "texto": "hola", "audio": True})
+
+
 def test_sin_app_ni_adb_no_se_envia(monkeypatch):
     monkeypatch.setattr(movil, "dispositivos_seguro", lambda: [])
     with pytest.raises(RuntimeError, match="NO se ha enviado"):

@@ -69,10 +69,23 @@ public class Accesibilidad extends AccessibilityService {
                     long id = t.getLong("id");
                     // Acuse de recibo: si no llega, el PC lo reentrega (por si la entrega se perdió por el camino)
                     Conexion.post(this, "/app/resultado", new JSONObject().put("id", id).put("estado", "recibido"), 10_000);
-                    if (!yaVisto(id) && "whatsapp".equals(t.getString("tipo"))) {
+                    String tipo = t.getString("tipo");
+                    if (!yaVisto(id) && "whatsapp".equals(tipo)) {
                         JSONObject d = t.getJSONObject("datos");
                         paso(id, "recibido; abriendo WhatsApp");
-                        principal.post(() -> empezarWhatsapp(id, d.optString("numero"), d.optString("texto")));
+                        principal.post(() -> empezarWhatsapp(id, d.optString("numero"), d.optString("texto"), null));
+                    } else if (!yaVisto(id) && "whatsapp_audio".equals(tipo)) {
+                        JSONObject d = t.getJSONObject("datos");
+                        paso(id, "recibido; descargando el audio");
+                        Uri audio;
+                        try {
+                            audio = bajarAudio(id, d.getString("sha256"));
+                        } catch (Exception e) {
+                            terminar(id, "error", "no pude preparar el audio: " + e.getMessage());
+                            continue;
+                        }
+                        paso(id, "audio listo y comprobado; abriendo WhatsApp");
+                        principal.post(() -> empezarWhatsapp(id, d.optString("numero"), null, audio));
                     }
                 } catch (Exception e) {
                     Conexion.error(this, "trabajo ilegible: " + e.getMessage());
@@ -111,9 +124,41 @@ public class Accesibilidad extends AccessibilityService {
     }
 
     private volatile boolean vioWhatsapp = false;
+    private volatile boolean modoAudio = false;
 
-    private void empezarWhatsapp(long id, String numero, String texto) {
-        if (texto == null || texto.isEmpty() || numero == null || numero.isEmpty()) {
+    /** Descarga el audio del PC, comprueba su huella SHA-256 (que llegó entero y es el confirmado) y lo guarda. */
+    private Uri bajarAudio(long id, String huella) throws Exception {
+        byte[] datos = Conexion.descargar(this, "/app/audio", new JSONObject().put("sha256", huella), 30_000);
+        java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+        StringBuilder hex = new StringBuilder();
+        for (byte b : md.digest(datos)) hex.append(String.format("%02x", b));
+        if (!hex.toString().equals(huella)) throw new Exception("el audio llegó dañado");
+        if (android.os.Build.VERSION.SDK_INT < 29) throw new Exception("hace falta Android 10 o más");
+        android.content.ContentValues v = new android.content.ContentValues();
+        v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, "JARVIS-" + id + ".ogg");
+        v.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "audio/ogg");
+        v.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Music/JARVIS");
+        v.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1);
+        Uri uri = getContentResolver().insert(android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, v);
+        if (uri == null) throw new Exception("no pude guardar el audio en el móvil");
+        try (java.io.OutputStream os = getContentResolver().openOutputStream(uri)) {
+            os.write(datos);
+        }
+        v.clear();
+        v.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0);
+        getContentResolver().update(uri, v, null, null);
+        // Se borra del móvil a los 10 minutos (WhatsApp ya tiene su copia)
+        principal.postDelayed(() -> {
+            try {
+                getContentResolver().delete(uri, null, null);
+            } catch (Exception ignored) {
+            }
+        }, 600_000);
+        return uri;
+    }
+
+    private void empezarWhatsapp(long id, String numero, String texto, Uri audio) {
+        if (numero == null || numero.isEmpty() || (audio == null && (texto == null || texto.isEmpty()))) {
             terminar(id, "error", "orden sin número o sin texto");
             return;
         }
@@ -133,7 +178,7 @@ public class Accesibilidad extends AccessibilityService {
                     } catch (Exception ignored) {
                     }
                     paso(id, "móvil desbloqueado");
-                    principal.postDelayed(() -> empezarWhatsapp(id, numero, texto), 600);
+                    principal.postDelayed(() -> empezarWhatsapp(id, numero, texto, audio), 600);
                 }
             };
             android.content.IntentFilter filtro = new android.content.IntentFilter(Intent.ACTION_USER_PRESENT);
@@ -154,13 +199,25 @@ public class Accesibilidad extends AccessibilityService {
             return;
         }
         trabajoId = id;
-        textoEsperado = texto;
+        modoAudio = audio != null;
+        textoEsperado = audio != null ? "" : texto;
         caduca = System.currentTimeMillis() + 30_000;
         pulsado = false;
         vioWhatsapp = false;
         try {
-            String url = "https://wa.me/" + numero.replace("+", "") + "?text=" + URLEncoder.encode(texto, "UTF-8").replace("+", "%20");
-            Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            Intent i;
+            String digitos = numero.replaceAll("[^0-9]", "");
+            if (audio != null) {
+                // El audio se comparte directamente al chat de esa persona ("jid" = número@s.whatsapp.net)
+                i = new Intent(Intent.ACTION_SEND);
+                i.setType("audio/ogg");
+                i.putExtra(Intent.EXTRA_STREAM, audio);
+                i.putExtra("jid", digitos + "@s.whatsapp.net");
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } else {
+                String url = "https://wa.me/" + digitos + "?text=" + URLEncoder.encode(texto, "UTF-8").replace("+", "%20");
+                i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            }
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
             // WhatsApp normal y, si no, WhatsApp Business. Se intenta abrir de verdad (no basta con "verlo").
             String paquete = instalado("com.whatsapp.w4b") && !instalado("com.whatsapp") ? "com.whatsapp.w4b" : "com.whatsapp";
@@ -192,9 +249,32 @@ public class Accesibilidad extends AccessibilityService {
         if (textoEsperado == null || pulsado || System.currentTimeMillis() > caduca) return;
         AccessibilityNodeInfo raiz = getRootInActiveWindow();
         if (raiz == null) return;
-        if (!vioWhatsapp && String.valueOf(raiz.getPackageName()).startsWith("com.whatsapp")) {
+        boolean enWhatsapp = String.valueOf(raiz.getPackageName()).startsWith("com.whatsapp");
+        if (!vioWhatsapp && enWhatsapp) {
             vioWhatsapp = true;
             paso(trabajoId, "WhatsApp abierto en pantalla");
+        }
+        if (modoAudio) {
+            if (!enWhatsapp) return;
+            AccessibilityNodeInfo enviar = botonEnviarAudio(raiz);
+            if (enviar == null) return;
+            pulsado = true;
+            final long id = trabajoId;
+            paso(id, "pulso Enviar en la pantalla del audio");
+            if (!pulsar(enviar)) {
+                terminar(id, "error", "WhatsApp no dejó pulsar Enviar en el audio");
+                return;
+            }
+            // Comprobación: tras pulsar, la pantalla/diálogo de envío tiene que desaparecer
+            principal.postDelayed(() -> {
+                AccessibilityNodeInfo r2 = getRootInActiveWindow();
+                if (r2 != null && botonEnviarAudio(r2) != null) {
+                    terminar(id, "error", "pulsé Enviar pero la pantalla de envío del audio sigue abierta");
+                } else {
+                    terminar(id, "enviado", "Audio enviado");
+                }
+            }, 2500);
+            return;
         }
         AccessibilityNodeInfo campo = buscar(raiz, CAMPOS);
         if (campo == null || campo.getText() == null) return;
@@ -220,11 +300,38 @@ public class Accesibilidad extends AccessibilityService {
         }, 1500);
     }
 
+    /** El botón de enviar de la pantalla (o el diálogo) que WhatsApp muestra al compartirle un audio. */
+    private static AccessibilityNodeInfo botonEnviarAudio(AccessibilityNodeInfo raiz) {
+        if (!String.valueOf(raiz.getPackageName()).startsWith("com.whatsapp")) return null;
+        AccessibilityNodeInfo b = buscar(raiz, ENVIAR);
+        if (b != null && b.isVisibleToUser()) return b;
+        b = buscar(raiz, new String[]{"android:id/button1", "com.whatsapp:id/send_btn", "com.whatsapp.w4b:id/send_btn"});
+        if (b != null && b.isVisibleToUser()) return b;
+        for (String t : new String[]{"Enviar", "ENVIAR", "Send", "SEND"}) {
+            List<AccessibilityNodeInfo> nodos = raiz.findAccessibilityNodeInfosByText(t);
+            if (nodos == null) continue;
+            for (AccessibilityNodeInfo n : nodos) {
+                CharSequence txt = n.getText() != null ? n.getText() : n.getContentDescription();
+                if (txt != null && txt.toString().trim().equalsIgnoreCase(t) && n.isVisibleToUser()) return n;
+            }
+        }
+        return null;
+    }
+
+    /** Pulsa el nodo o, si no es pulsable, el primer padre que lo sea. */
+    private static boolean pulsar(AccessibilityNodeInfo n) {
+        for (int i = 0; n != null && i < 4; i++, n = n.getParent()) {
+            if (n.isClickable()) return n.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+        }
+        return false;
+    }
+
     private String diagnostico() {
         AccessibilityNodeInfo raiz = getRootInActiveWindow();
         if (raiz == null) return "no se abrió WhatsApp (o no puedo ver la pantalla)";
         String paquete = String.valueOf(raiz.getPackageName());
         if (!paquete.startsWith("com.whatsapp")) return "WhatsApp no llegó a abrirse (pantalla actual: " + paquete + ")";
+        if (modoAudio) return "WhatsApp se abrió pero no encontré el botón de enviar el audio";
         AccessibilityNodeInfo campo = buscar(raiz, CAMPOS);
         if (campo == null) return "WhatsApp se abrió pero no encontré la caja de texto del chat";
         return "el texto escrito en el chat no coincide con el confirmado, así que no lo envié";
@@ -233,6 +340,7 @@ public class Accesibilidad extends AccessibilityService {
     private void terminar(long id, String estado, String detalle) {
         if (trabajoId == id) {
             textoEsperado = null;
+            modoAudio = false;
             trabajoId = -1;
         }
         Conexion.anotar(this, "ultimo_envio", estado + ": " + detalle);

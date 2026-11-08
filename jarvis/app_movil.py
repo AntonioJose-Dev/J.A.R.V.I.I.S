@@ -224,6 +224,29 @@ async def _resultado(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+def _audio_en_curso(huella: str) -> bool:
+    """Solo se entrega un audio si pertenece a un encargo que está ahora mismo en marcha."""
+    db = _db()
+    filas = db.execute("SELECT datos FROM app_trabajos WHERE tipo='whatsapp_audio' AND estado IN ('entregado','recibido')"
+                       ).fetchall()
+    db.close()
+    return any(json.loads(d).get("sha256") == huella for (d,) in filas)
+
+
+async def _audio(request: web.Request) -> web.Response:
+    datos = await _leer(request)
+    if datos is None:
+        return web.json_response({"error": "código incorrecto"}, status=401)
+    from . import audio
+
+    huella = str(datos.get("sha256", ""))
+    contenido = audio.leer(huella) if await asyncio.to_thread(_audio_en_curso, huella) else None
+    if contenido is None:
+        return web.json_response({"error": "no hay ese audio"}, status=404)
+    log.info("Audio %s… entregado a la app (%d KB)", huella[:8], len(contenido) // 1024)
+    return web.Response(body=contenido, content_type="audio/ogg")
+
+
 async def arrancar_servidor() -> web.AppRunner | None:
     """Arranca el servidor en la IP de Tailscale. Sin Tailscale o sin código, no arranca (y lo dice)."""
     if not os.getenv("JARVIS_APP_TOKEN", "").strip():
@@ -235,7 +258,7 @@ async def arrancar_servidor() -> web.AppRunner | None:
         return None
     app = web.Application(client_max_size=64 * 1024)
     app.add_routes([web.post("/app/hola", _hola), web.post("/app/espera", _espera),
-                    web.post("/app/resultado", _resultado)])
+                    web.post("/app/resultado", _resultado), web.post("/app/audio", _audio)])
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     await web.TCPSite(runner, ip, PUERTO).start()
