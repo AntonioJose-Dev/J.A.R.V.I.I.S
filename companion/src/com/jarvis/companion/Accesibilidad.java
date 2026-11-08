@@ -415,7 +415,13 @@ public class Accesibilidad extends AccessibilityService {
                 p.put("hecho", hecho);
                 terminar(id, "pantalla", p.toString());
             } catch (Exception e) {
-                terminar(id, "error", "hecho (" + hecho + "), pero no pude ver la pantalla: " + e.getMessage());
+                // La acción SÍ se hizo; solo falló leer la pantalla (estaba cambiando): se da por hecha
+                try {
+                    terminar(id, "pantalla", new JSONObject().put("hecho", hecho).put("app", "")
+                            .put("elementos", new org.json.JSONArray()).put("aviso", "no pude leer la pantalla nueva").toString());
+                } catch (Exception ignored) {
+                    terminar(id, "error", "hecho (" + hecho + "), pero no pude ver la pantalla");
+                }
             }
         }, soloVer ? 50 : 900);
     }

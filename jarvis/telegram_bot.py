@@ -288,8 +288,9 @@ class JarvisTelegram:
         try:
             await asyncio.to_thread(app_movil.paso_movil, accion, 15)
         except RuntimeError as e:
-            log.info("Atajo fallido (%s); lo piensa JARVIS", e)
-            return None
+            if not str(e).startswith("hecho ("):  # hecho, pero no pudo leer la pantalla después: cuenta como hecho
+                log.info("Atajo fallido (%s); lo piensa JARVIS", e)
+                return None
         historial = self.historiales.setdefault(chat, llm.ChatContext())
         historial.add_message(role="user", content=texto)
         historial.add_message(role="assistant", content=frase)
