@@ -104,9 +104,29 @@ def _guardar_resultado(trabajo_id: int, estado_: str, detalle: str) -> None:
             db.execute("UPDATE app_trabajos SET estado='recibido' WHERE id=? AND estado IN ('pendiente','entregado')",
                        (trabajo_id,))
         else:
+            # Lo leído de un chat se guarda un momento (lo recoge leer_chat y lo borra); lo demás, sin texto de chats
+            guardado = detalle[:20000] if estado_ == "leido" else privado(detalle)[:500]
             db.execute("UPDATE app_trabajos SET estado=?, resultado=? WHERE id=? AND estado IN ('pendiente','entregado','recibido')",
-                       (estado_, privado(detalle)[:500], trabajo_id))
+                       (estado_, guardado, trabajo_id))
     db.close()
+
+
+def leer_chat(numero: str, segundos: float = 40) -> list[dict]:
+    """Pide a la app que lea los últimos mensajes del chat con `numero`. El texto NO se queda guardado:
+    se borra de la base de datos en cuanto se recoge (va solo al cerebro, para esta petición)."""
+    trabajo = encargar("leer_chat", {"numero": numero})
+    estado_, detalle = esperar_resultado(trabajo, segundos)
+    db = _db()
+    with db:
+        db.execute("UPDATE app_trabajos SET resultado=NULL WHERE id=?", (trabajo,))
+    db.close()
+    if estado_ != "leido":
+        raise RuntimeError(detalle or estado_)
+    try:
+        mensajes = json.loads(detalle)
+    except ValueError as e:
+        raise RuntimeError("la app devolvió algo ilegible") from e
+    return [m for m in mensajes if isinstance(m, dict) and m.get("texto")]
 
 
 _PRIVADO = re.compile(r"\[(message_text|single_msg_tv|conversations_row_message_view|caption|quoted_text)\|[^|\]]*")
@@ -234,7 +254,10 @@ async def _resultado(request: web.Request) -> web.Response:
         await asyncio.to_thread(_guardar_resultado, int(datos["id"]), str(datos["estado"]), str(datos.get("detalle", "")))
     except (KeyError, ValueError):
         return web.json_response({"error": "faltan datos"}, status=400)
-    log.info("La app terminó el trabajo %s: %s %s", datos["id"], datos["estado"], privado(str(datos.get("detalle", "")))[:300])
+    if datos["estado"] == "leido":  # el contenido de un chat nunca va al log
+        log.info("La app terminó el trabajo %s: chat leído", datos["id"])
+    else:
+        log.info("La app terminó el trabajo %s: %s %s", datos["id"], datos["estado"], privado(str(datos.get("detalle", "")))[:300])
     return web.json_response({"ok": True})
 
 

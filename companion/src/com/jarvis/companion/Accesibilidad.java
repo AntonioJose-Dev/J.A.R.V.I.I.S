@@ -141,6 +141,10 @@ public class Accesibilidad extends AccessibilityService {
                             notaDeVoz = nota;
                             empezarWhatsapp(id, d.optString("numero"), null, audio);
                         });
+                    } else if ("leer_chat".equals(tipo)) {
+                        JSONObject d = t.getJSONObject("datos");
+                        paso(id, "abriendo el chat para leerlo");
+                        principal.post(() -> leerChat(id, d.optString("numero")));
                     } else {
                         terminar(id, "error", "esta versión de la app no sabe hacer «" + tipo + "»");
                     }
@@ -378,6 +382,129 @@ public class Accesibilidad extends AccessibilityService {
         principal.postDelayed(() -> {
             if (trabajoId == id && intento == mio && !pulsado) terminar(id, "error", diagnostico());
         }, 30_000);
+    }
+
+    // --- Leer un chat (para que JARVIS pueda responder con coherencia) --------------------------------------
+    // Solo LEE: no escribe ni pulsa nada. Lo leído va al PC para esa petición (no se guarda en la app).
+
+    private void leerChat(long id, String numero) {
+        android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+        if (km != null && km.isKeyguardLocked()) {
+            terminar(id, "error", "el móvil está bloqueado: desbloquéalo y vuelve a pedírmelo");
+            return;
+        }
+        String digitos = numero == null ? "" : numero.replaceAll("[^0-9]", "");
+        if (digitos.isEmpty()) {
+            terminar(id, "error", "falta el número del chat");
+            return;
+        }
+        Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/" + digitos));
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        i.setPackage(instalado("com.whatsapp.w4b") && !instalado("com.whatsapp") ? "com.whatsapp.w4b" : "com.whatsapp");
+        try {
+            startActivity(i);
+        } catch (Exception e) {
+            terminar(id, "error", "no pude abrir el chat: " + e.getMessage());
+            return;
+        }
+        esperarChatYLeer(id, System.currentTimeMillis() + 15_000);
+    }
+
+    private void esperarChatYLeer(long id, long hasta) {
+        boolean abierto = false;
+        for (AccessibilityNodeInfo r : raicesWhatsapp()) {
+            AccessibilityNodeInfo c = buscar(r, CAMPOS);
+            if (c != null && c.isVisibleToUser()) abierto = true;
+        }
+        if (!abierto) {
+            if (System.currentTimeMillis() > hasta) {
+                terminar(id, "error", "el chat no llegó a abrirse");
+            } else {
+                principal.postDelayed(() -> esperarChatYLeer(id, hasta), 600);
+            }
+            return;
+        }
+        final List<String[]> recientes = mensajesEnPantalla();
+        // Un poco hacia arriba, para tener más contexto
+        AccessibilityNodeInfo lista = listaDesplazable();
+        if (lista != null) lista.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD);
+        principal.postDelayed(() -> {
+            List<String[]> anteriores = mensajesEnPantalla();
+            AccessibilityNodeInfo l2 = listaDesplazable();
+            if (l2 != null) l2.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+            java.util.LinkedHashMap<String, String[]> todos = new java.util.LinkedHashMap<>();
+            for (String[] m : anteriores) todos.put(m[0] + "|" + m[1] + "|" + m[2], m);
+            for (String[] m : recientes) todos.put(m[0] + "|" + m[1] + "|" + m[2], m);
+            org.json.JSONArray arr = new org.json.JSONArray();
+            List<String[]> lista2 = new java.util.ArrayList<>(todos.values());
+            for (String[] m : lista2.subList(Math.max(0, lista2.size() - 20), lista2.size())) {
+                try {
+                    arr.put(new JSONObject().put("de", m[0]).put("texto", m[1]).put("hora", m[2]));
+                } catch (Exception ignored) {
+                }
+            }
+            terminar(id, "leido", arr.toString());
+        }, 900);
+    }
+
+    private AccessibilityNodeInfo listaDesplazable() {
+        for (AccessibilityNodeInfo r : raicesWhatsapp()) {
+            java.util.ArrayDeque<AccessibilityNodeInfo> cola = new java.util.ArrayDeque<>();
+            cola.add(r);
+            while (!cola.isEmpty()) {
+                AccessibilityNodeInfo x = cola.poll();
+                if (x == null) continue;
+                if (x.isScrollable()) return x;
+                for (int k = 0; k < x.getChildCount(); k++) cola.add(x.getChild(k));
+            }
+        }
+        return null;
+    }
+
+    /** Los mensajes visibles del chat, de arriba a abajo: {de ("yo" / "el_otro"), texto, hora}. */
+    private List<String[]> mensajesEnPantalla() {
+        List<String[]> res = new java.util.ArrayList<>();
+        int ancho = getResources().getDisplayMetrics().widthPixels;
+        android.graphics.Rect b = new android.graphics.Rect();
+        for (AccessibilityNodeInfo r : raicesWhatsapp()) {
+            java.util.ArrayDeque<AccessibilityNodeInfo> cola = new java.util.ArrayDeque<>();
+            cola.add(r);
+            while (!cola.isEmpty()) {
+                AccessibilityNodeInfo x = cola.poll();
+                if (x == null) continue;
+                String vid = x.getViewIdResourceName() == null ? "" : x.getViewIdResourceName();
+                CharSequence desc = x.getContentDescription();
+                if (vid.endsWith(":id/message_text") && x.getText() != null) {
+                    x.getBoundsInScreen(b);
+                    // Los mensajes recibidos van pegados a la izquierda; los míos, a la derecha
+                    String de = b.left < ancho * 0.1 ? "el_otro" : "yo";
+                    String texto = x.getText().toString();
+                    res.add(new String[]{de, texto.length() > 400 ? texto.substring(0, 400) : texto, horaDe(x)});
+                } else if (vid.endsWith(":id/main_layout") && desc != null
+                        && desc.toString().matches("(?i).*mensaje de (voz|audio).*")) {
+                    String d = desc.toString();
+                    String de = d.startsWith("Tú") ? "yo" : "el_otro";
+                    java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d{1,2}:\\d{2})").matcher(d);
+                    String hora = "";
+                    while (m.find()) hora = m.group(1);
+                    res.add(new String[]{de, "[nota de voz]", hora});
+                }
+                for (int k = 0; k < x.getChildCount(); k++) cola.add(x.getChild(k));
+            }
+        }
+        return res;
+    }
+
+    /** La hora del globo del mensaje (el nodo "date" que va con él). */
+    private static String horaDe(AccessibilityNodeInfo n) {
+        AccessibilityNodeInfo p = n.getParent();
+        for (int i = 0; i < 3 && p != null; i++, p = p.getParent()) {
+            for (String pq : new String[]{"com.whatsapp.w4b", "com.whatsapp"}) {
+                List<AccessibilityNodeInfo> f = p.findAccessibilityNodeInfosByViewId(pq + ":id/date");
+                if (f != null && !f.isEmpty() && f.get(0).getText() != null) return f.get(0).getText().toString();
+            }
+        }
+        return "";
     }
 
     // --- Nota de voz de verdad: mantener pulsado el micrófono de WhatsApp mientras suena el audio -------------
@@ -762,7 +889,8 @@ public class Accesibilidad extends AccessibilityService {
             modoAudio = false;
             trabajoId = -1;
         }
-        Conexion.anotar(this, "ultimo_envio", estado + ": " + detalle);
+        // Lo leído de un chat no se apunta en la app (privacidad): solo que se leyó
+        Conexion.anotar(this, "ultimo_envio", "leido".equals(estado) ? "leído un chat para JARVIS" : estado + ": " + detalle);
         new Thread(() -> {
             for (int intento = 0; intento < 4; intento++) {  // el resultado tiene que llegar al PC
                 try {

@@ -107,14 +107,14 @@ GRUPOS = {
     "llamadas": {"guardar_contacto", "llamar"},
     "pc": {"abrir_programa", "abrir_web", "buscar_archivo", "enviar_archivo", "multimedia", "captura_pantalla",
            "estado_pc", "bloquear_pc", "accion_pc_delicada"},
-    "movil": {"movil_info", "movil_hacer", "movil_mensaje", "guardar_contacto", "leer_whatsapp"},
+    "movil": {"movil_info", "movil_hacer", "movil_mensaje", "guardar_contacto", "leer_whatsapp", "leer_chat_whatsapp"},
     "internet": {"buscar_en_internet", "leer_pagina", "noticias", "tiempo"},
     "recordatorios": {"programar_recordatorio", "ver_recordatorios", "borrar_recordatorio", "configurar_resumen"},
 }
 PALABRAS = {
     "llamadas": r"llam|telefon|contacto|agenda|numero",
     "movil": r"movil|celular|whats|sms|mensaje|notificaci|linterna|alarma|despierta|temporizador|ubicaci|donde esta"
-             r"|donde estoy|suena|sonar|vibra|foto|camara|bateria del|escrito|me ha(n)? dicho|sin leer",
+             r"|donde estoy|suena|sonar|vibra|foto|camara|bateria del|escrito|me ha(n)? dicho|sin leer|respond|contesta",
     "pc": r"\bpc\b|ordenador|portatil|abre|abrir|programa|\bweb\b|pagina|busca|archivo|fichero|documento|pdf|carpeta"
           r"|volumen|musica|cancion|pausa|siguiente|pantalla|captura|bloquea|apaga|reinicia|suspende|cierra|escribe"
           r"|comando|google|youtube|navegador|descarga|manda(me)?l|envia(me)?l|bateria|memoria|disco",
@@ -132,7 +132,7 @@ def _normalizar(texto: str) -> str:
 
 
 MENCIONA_PC = r"\bpc\b|ordenador|portatil|computador"
-MENSAJE_ESCRITO = r"whats|wasap|\bsms\b|mensaje|escribele|escribirle|mandale|enviale|mandarle|enviarle|dile por"
+MENSAJE_ESCRITO = r"whats|wasap|\bsms\b|mensaje|escribele|escribirle|mandale|enviale|mandarle|enviarle|dile por|respondele|contestale|responde a|contesta a"
 
 
 def grupos_para(texto: str, usados_antes: set[str] = frozenset(), preferir_movil: bool = False) -> set[str]:

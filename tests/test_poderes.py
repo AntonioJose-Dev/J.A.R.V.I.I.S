@@ -218,6 +218,8 @@ async def test_leer_whatsapp_filtra_por_contacto(monkeypatch):
 
 
 @pytest.mark.parametrize("frase, grupo", [
+    ("Responde a Noe que sí, pero mañana", "movil"),
+    ("Contéstale a mi madre", "movil"),
     ("¿Qué me ha escrito mi madre?", "movil"),
     ("Pon el resumen a las 7:30", "recordatorios"),
 ])

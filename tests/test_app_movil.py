@@ -124,6 +124,38 @@ def test_lo_que_cuenta_la_app_no_guarda_los_mensajes_de_los_chats():
     assert "voice_note_info|0:00" in limpio and "message_text|(oculto)" in limpio
 
 
+def test_leer_chat_devuelve_los_mensajes_y_no_los_deja_guardados():
+    app_movil.guardar_estado(ultimo_contacto=__import__("time").time())
+    chat = '[{"de":"el_otro","texto":"¿Vienes esta noche?","hora":"13:22"},{"de":"yo","texto":"jaja ya veremos","hora":"13:23"}]'
+
+    def app_falsa():
+        import time
+        for _ in range(40):
+            t = app_movil._siguiente_trabajo()
+            if t:
+                assert t["tipo"] == "leer_chat" and t["datos"] == {"numero": "+34600123456"}
+                app_movil._guardar_resultado(t["id"], "leido", chat)
+                return
+            time.sleep(0.1)
+    threading.Thread(target=app_falsa).start()
+    mensajes = app_movil.leer_chat("+34600123456", 5)
+    assert [m["texto"] for m in mensajes] == ["¿Vienes esta noche?", "jaja ya veremos"]
+    db = app_movil._db()
+    assert db.execute("SELECT resultado FROM app_trabajos").fetchall() == [(None,)]  # nada guardado
+    db.close()
+
+
+async def test_un_chat_leido_no_va_al_log(caplog):
+    c = await _cliente()
+    tid = app_movil.encargar("leer_chat", {"numero": "+34600123456"})
+    app_movil._siguiente_trabajo(True)
+    with caplog.at_level("INFO"):
+        await c.post("/app/resultado", json={"id": tid, "estado": "leido", "detalle": '[{"texto":"secreto"}]'},
+                     headers={"X-Jarvis-Token": TOKEN})
+    assert "secreto" not in caplog.text and "chat leído" in caplog.text
+    await c.close()
+
+
 def test_un_acuse_tardio_no_pisa_el_resultado():
     tid = app_movil.encargar("whatsapp", {"numero": "+34600123456", "texto": "hola"})
     app_movil._siguiente_trabajo(True)
