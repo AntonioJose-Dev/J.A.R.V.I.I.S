@@ -27,7 +27,9 @@ class Memoria:
         Args:
             sobre: de quién o de qué (nombre de la nota), p. ej. "Noe".
             dato_viejo: lo que ya no es verdad, p. ej. "vive en Madrid".
-            dato_nuevo: lo correcto ahora, en una frase, p. ej. "Vive en Sevilla".
+            dato_nuevo: lo correcto ahora, en una frase, p. ej. "Vive en Sevilla". Si el dato viejo traía otras
+                cosas que SIGUEN siendo verdad (p. ej. "vive en Madrid y es fontanero"), inclúyelas también aquí
+                ("Vive en Sevilla y es fontanero"): lo viejo entero queda tachado.
         """
         try:
             nota = await asyncio.to_thread(_boveda().corregir, sobre, dato_viejo, dato_nuevo)

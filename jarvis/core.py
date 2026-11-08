@@ -130,6 +130,7 @@ class Jarvis(ControlPC, ControlMovil, Manos, Memoria, Internet, Recordatorios, R
     async def recordar(self, context: RunContext, hecho: str, sobre: str = "", tipo: str = "general",
                        relacionados: str = "", importante: bool = False, nombre_confirmado: bool = False) -> str:
         """Guarda un dato que merezca la pena recordar (no trivialidades) en el cerebro de JARVIS (notas enlazadas).
+        UN dato por llamada: "vive en Madrid y es fontanero" son DOS llamadas (así luego se puede corregir uno solo).
         Si ya lo sabía, no lo repite. Si CAMBIA algo que ya sabías (se mudó, cambió de trabajo), usa corregir_recuerdo.
 
         Args:
