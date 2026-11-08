@@ -2,14 +2,26 @@
 
 import inspect
 
-from livekit.plugins import elevenlabs
+import pytest
+from livekit.plugins import deepgram, elevenlabs
 
-from jarvis import llamadas, telegram_bot
+from jarvis import core, llamadas, telegram_bot
 from jarvis.config import Plan
 from jarvis.core import MODELO_ELEVEN, crear_voz, describir_voz
 
 DANIEL = "onwK4e9ZLuTAKqWW03F9"
 PLAN = Plan("groq", "elevenlabs")
+
+
+@pytest.fixture(autouse=True)
+def eleven_funciona(monkeypatch):
+    monkeypatch.setattr(core, "estado_eleven", lambda forzar=False: (True, ""))  # sin red en las pruebas
+
+
+def test_sin_elevenlabs_una_sola_voz_toda_la_sesion(monkeypatch):
+    monkeypatch.setattr(core, "estado_eleven", lambda forzar=False: (False, "quota_exceeded"))
+    v = crear_voz(PLAN)
+    assert isinstance(v, deepgram.TTS)  # directamente la de reserva, sin intentar ElevenLabs en cada frase
 
 
 def _opts(tts):

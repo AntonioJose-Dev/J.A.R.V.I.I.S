@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 def system_prompt(owner: str, memories: list[str]) -> str:
-    known = "\n".join(f"- {m}" for m in memories) or "- (todavía nada)"
+    known = "\n".join(f"- {m}" for m in memories) or "- (está en tu cerebro: búscalo con `buscar_recuerdos` cuando haga falta)"
     return f"""Eres J.A.R.V.I.S., el asistente personal de {owner}. Hablas en español de España.
 
 Estilo:

@@ -6,6 +6,7 @@ Las usan tanto el agente de voz (`jarvis.agent`) como el bot de Telegram
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -72,7 +73,9 @@ class Jarvis(ControlPC, ControlMovil, Manos, Internet, Recordatorios, Resumen, A
         self.memory = memory
         self._pedir_confirmacion = pedir_confirmacion or telefono.pedir_confirmacion_telegram
         self._pedir_confirmacion_pc = pedir_confirmacion_pc
-        recent = [m.text for m in memory.recent(20)]
+        # Los recuerdos se buscan cuando hacen falta (buscar_recuerdos), no se mandan todos en cada mensaje:
+        # menos gasto, menos sesgo a lo reciente y menos datos privados a los cerebros gratuitos.
+        recent = [] if os.getenv("JARVIS_BOVEDA", "").strip() else [m.text for m in memory.recent(5)]
         super().__init__(instructions=system_prompt(OWNER, recent))
 
     @function_tool
@@ -133,11 +136,13 @@ class Jarvis(ControlPC, ControlMovil, Manos, Internet, Recordatorios, Resumen, A
             tipo: persona, lugar, proyecto, gusto, evento o general.
             relacionados: otras personas, lugares o cosas que aparecen, separadas por comas, p. ej. "Madrid, Potro".
         """
-        m = self.memory.remember(f"{sobre}: {hecho}" if sobre else hecho, tipo)
         b = boveda_activa()
-        if b is None:
+        if b is None:  # sin Obsidian, la memoria es la base de datos
+            m = self.memory.remember(f"{sobre}: {hecho}" if sobre else hecho, tipo)
             return f"Guardado (#{m.id})."
-        nota = b.recordar(hecho, sobre=sobre, tipo=tipo, relacionados=[r for r in relacionados.split(",") if r.strip()])
+        # Con Obsidian, ES la única fuente de verdad (antes se guardaba también en SQLite y esa copia nadie la leía)
+        nota = await asyncio.to_thread(b.recordar, hecho, sobre=sobre, tipo=tipo,
+                                       relacionados=[r for r in relacionados.split(",") if r.strip()])
         return f"Guardado en la nota «{nota}»."
 
     @function_tool
@@ -306,10 +311,42 @@ def voz_de_reserva(http_session: aiohttp.ClientSession | None = None) -> tts.TTS
     return deepgram.TTS(model=os.getenv("JARVIS_DEEPGRAM_VOICE", "aura-2-alvaro-es"), **extra)
 
 
+_eleven = {"ok": None, "cuando": 0.0, "motivo": ""}
+
+
+def estado_eleven(forzar: bool = False) -> tuple[bool, str]:
+    """¿Funciona ElevenLabs ahora? Se comprueba con una prueba mínima (1 carácter) y se recuerda un rato:
+    si funciona, 6 h; si no (cupo agotado, permisos…), 3 h. Así JARVIS habla con UNA sola voz toda la sesión
+    en vez de cambiar a mitad de frase."""
+    import time as _t
+
+    import httpx
+
+    vigente = 6 * 3600 if _eleven["ok"] else 3 * 3600
+    if not forzar and _eleven["ok"] is not None and _t.time() - _eleven["cuando"] < vigente:
+        return _eleven["ok"], _eleven["motivo"]
+    try:
+        r = httpx.post(f"https://api.elevenlabs.io/v1/text-to-speech/{voz_eleven()}",
+                       headers={"xi-api-key": os.getenv("ELEVEN_API_KEY", "").strip()},
+                       json={"text": ".", "model_id": modelo_eleven()}, timeout=10)
+        ok = r.status_code == 200
+        motivo = "" if ok else (r.json().get("detail", {}).get("code") if "json" in r.headers.get("content-type", "")
+                                else f"HTTP {r.status_code}") or f"HTTP {r.status_code}"
+    except Exception as e:  # sin red: se considera que no (y se reintenta más tarde)
+        ok, motivo = False, type(e).__name__
+    _eleven.update(ok=ok, cuando=_t.time(), motivo=str(motivo))
+    if not ok:
+        log.warning("ElevenLabs no disponible (%s): uso la voz de reserva para toda la sesión", motivo)
+    return ok, str(motivo)
+
+
 def crear_voz(plan: Plan, http_session: aiohttp.ClientSession | None = None) -> tts.TTS:
     """La voz de JARVIS. Es la misma para llamadas, voz del PC y notas de voz de Telegram.
-    Si ElevenLabs falla (clave, permisos o cupo), habla con la voz de reserva en vez de quedarse mudo."""
+    Si ElevenLabs no funciona (clave, permisos o cupo), se usa la voz de reserva desde el principio y para toda
+    la sesión (no a mitad de frase)."""
     extra = {"http_session": http_session} if http_session else {}
+    if plan.voz == "elevenlabs" and not estado_eleven()[0]:
+        return voz_de_reserva(http_session)
     if plan.voz == "elevenlabs":
         modelo = modelo_eleven()
         if not modelo.startswith("eleven_v4"):  # los v4 no admiten estos ajustes (usan otra API)

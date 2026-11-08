@@ -221,6 +221,7 @@ class JarvisTelegram:
         self.permitidos = parse_ids(os.getenv("TELEGRAM_ALLOWED_IDS"))
         self.deepgram_key = os.getenv("DEEPGRAM_API_KEY", "").strip()
         self.historiales: dict[int, llm.ChatContext] = {}
+        self.jarvis_por_chat: dict[int, Jarvis] = {}
         self.http: aiohttp.ClientSession | None = None
 
     async def iniciar(self, app: Application) -> None:
@@ -235,6 +236,7 @@ class JarvisTelegram:
             log.exception("No pude arrancar el servidor de la app JARVIS")
             self.servidor_app = None
         self.tarea_recordatorios = asyncio.create_task(self.vigilar_recordatorios(app))
+        asyncio.create_task(self.comprobar_voz(app))
         me = await app.bot.get_me()
         log.info("Bot @%s listo (%s; %s). Usuarios permitidos: %d",
                  me.username, self.plan.describir(), describir_voz(self.plan), len(self.permitidos))
@@ -262,7 +264,10 @@ class JarvisTelegram:
     async def pensar(self, chat_id: int, texto: str) -> str:
         historial = self.historiales.setdefault(chat_id, llm.ChatContext())
         t0 = time.perf_counter()
-        jarvis = Jarvis(self.memory)
+        # Un mismo JARVIS por chat (no uno nuevo por mensaje): recuerda, p. ej., la última pantalla del móvil
+        jarvis = self.jarvis_por_chat.get(chat_id)
+        if jarvis is None:
+            jarvis = self.jarvis_por_chat[chat_id] = Jarvis(self.memory)
         jarvis.preferir_movil = True  # en Telegram estás con el móvil: "abre X" es en el móvil
         respuesta = await responder(self.cerebro, jarvis, historial, texto)
         historial.truncate(max_items=HISTORIAL_MAX)
@@ -338,6 +343,29 @@ class JarvisTelegram:
                 if not con_texto:
                     await msg.reply_text(f"{respuesta}\n\n(Te lo escribo porque no he podido generar el audio: "
                                          f"{type(e).__name__}.)")
+
+    async def comprobar_voz(self, app: Application) -> None:
+        """Al arrancar: ¿funciona la voz principal? Si no, se usa la de reserva TODA la sesión y se avisa UNA vez."""
+        if self.plan.voz != "elevenlabs":
+            return
+        from .core import estado_eleven
+
+        ok, motivo = await asyncio.to_thread(estado_eleven, True)
+        avisado = self.memory.get_setting("voz.aviso", "")
+        if ok:
+            self.memory.set_setting("voz.aviso", "")
+            return
+        if motivo != avisado and self.permitidos:
+            self.memory.set_setting("voz.aviso", motivo)
+            explicacion = ("se ha gastado el cupo gratuito del mes" if "quota" in motivo
+                           else "la clave no tiene permiso para hablar" if "permission" in motivo else motivo)
+            try:
+                await app.bot.send_message(next(iter(self.permitidos)),
+                                           f"🔈 Aviso de JARVIS: la voz de ElevenLabs no funciona ({explicacion}). "
+                                           "Hasta que vuelva, hablo SIEMPRE con la voz de reserva (Deepgram), sin "
+                                           "cambiar a mitad de frase. Lo compruebo solo cada pocas horas.")
+            except Exception:
+                log.exception("No pude avisar de la voz")
 
     async def vigilar_recordatorios(self, app: Application) -> None:
         """Cada 15 s mira si toca algún recordatorio y lo manda como nota de voz (o por escrito si el audio falla)."""
