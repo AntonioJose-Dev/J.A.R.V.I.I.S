@@ -262,7 +262,7 @@ def ejecutar_accion(datos: dict) -> str:
             trabajo = app_movil.encargar("whatsapp_audio", {"numero": datos["numero"], "sha256": huella})
             resultado, detalle = app_movil.esperar_resultado(trabajo)
             if resultado == "enviado":
-                return "Audio de WhatsApp enviado (comprobado por la app JARVIS)."
+                return f"Audio de WhatsApp enviado (comprobado por la app JARVIS: {detalle})."
             raise RuntimeError(f"la app JARVIS no pudo enviar el audio: {detalle or resultado}")
         if est["en_linea"]:
             # Camino principal: la app JARVIS (conectada directamente al PC) abre el chat, pulsa Enviar y lo comprueba

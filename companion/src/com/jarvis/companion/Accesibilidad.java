@@ -182,6 +182,43 @@ public class Accesibilidad extends AccessibilityService {
 
     private volatile boolean vioWhatsapp = false;
     private volatile boolean modoAudio = false;
+    private volatile long inicio = 0;
+
+    /**
+     * WhatsApp Business manda el audio compartido a un chat SIN preguntar y vuelve a la lista de chats.
+     * Se da por enviado solo si en esa lista aparece un audio o nota de voz con la hora de ahora (o la de inicio).
+     * Devuelve cómo lo muestra WhatsApp ("Audio", "Mensaje de voz (0:04)"…) o null.
+     */
+    private String audioYaEnviado() {
+        java.text.SimpleDateFormat hm = new java.text.SimpleDateFormat("HH:mm");
+        java.util.Set<String> horas = new java.util.HashSet<>();
+        horas.add(hm.format(new java.util.Date(inicio)));
+        horas.add(hm.format(new java.util.Date()));
+        for (AccessibilityNodeInfo r : raicesWhatsapp()) {
+            for (String sufijo : new String[]{":id/single_msg_tv", ":id/conversations_row_message_view"}) {
+                for (String pq : new String[]{"com.whatsapp.w4b", "com.whatsapp"}) {
+                    List<AccessibilityNodeInfo> msgs = r.findAccessibilityNodeInfosByViewId(pq + sufijo);
+                    if (msgs == null) continue;
+                    for (AccessibilityNodeInfo m : msgs) {
+                        String t = m.getText() == null ? "" : m.getText().toString().trim();
+                        if (!t.matches("(?i)^(audio|mensaje de voz|nota de voz|voice message).*")) continue;
+                        // Subir hasta la fila del chat y mirar su hora
+                        AccessibilityNodeInfo fila = m;
+                        for (int i = 0; i < 6 && fila != null; i++) {
+                            List<AccessibilityNodeInfo> fechas = fila.findAccessibilityNodeInfosByViewId(pq + ":id/conversations_row_date");
+                            if (fechas != null && !fechas.isEmpty()) {
+                                CharSequence f = fechas.get(0).getText();
+                                if (f != null && horas.contains(f.toString().trim())) return t;
+                                break;
+                            }
+                            fila = fila.getParent();
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    }
 
     /** Descarga el audio del PC, comprueba su huella SHA-256 (que llegó entero y es el confirmado) y lo guarda. */
     private Uri bajarAudio(long id, String huella) throws Exception {
@@ -192,7 +229,10 @@ public class Accesibilidad extends AccessibilityService {
         if (!hex.toString().equals(huella)) throw new Exception("el audio llegó dañado");
         if (android.os.Build.VERSION.SDK_INT < 29) throw new Exception("hace falta Android 10 o más");
         android.content.ContentValues v = new android.content.ContentValues();
-        v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, "JARVIS-" + id + ".ogg");
+        // Nombre como el de las notas de voz de WhatsApp (PTT-fecha-WAnnnn.opus): así puede tratarlo como nota de voz
+        String fecha = new java.text.SimpleDateFormat("yyyyMMdd").format(new java.util.Date());
+        v.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME,
+                "PTT-" + fecha + "-WA" + String.format(java.util.Locale.ROOT, "%04d", id % 10000) + ".opus");
         v.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "audio/ogg");
         v.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Music/JARVIS");
         v.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1);
@@ -257,6 +297,7 @@ public class Accesibilidad extends AccessibilityService {
         }
         trabajoId = id;
         modoAudio = audio != null;
+        inicio = System.currentTimeMillis();
         textoEsperado = audio != null ? "" : texto;
         caduca = System.currentTimeMillis() + 30_000;
         pulsado = false;
@@ -354,7 +395,15 @@ public class Accesibilidad extends AccessibilityService {
                 paso(trabajoId, "WhatsApp abierto en pantalla");
             }
             AccessibilityNodeInfo enviar = enviarAudioEnPantalla();
-            if (enviar == null) return;
+            if (enviar == null) {
+                // ¿WhatsApp ya lo mandó él solo? (lo hace al compartir a un chat concreto)
+                String como = System.currentTimeMillis() - inicio > 1500 ? audioYaEnviado() : null;
+                if (como != null) {
+                    pulsado = true;
+                    terminar(trabajoId, "enviado", "Audio enviado; en WhatsApp aparece como «" + como + "»");
+                }
+                return;
+            }
             pulsado = true;
             final long id = trabajoId;
             paso(id, "pulso Enviar en la pantalla del audio");
