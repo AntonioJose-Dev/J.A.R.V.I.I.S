@@ -116,6 +116,14 @@ async def test_paso_de_bloqueo_avisa_por_telegram(monkeypatch):
     await c.close()
 
 
+def test_lo_que_cuenta_la_app_no_guarda_los_mensajes_de_los_chats():
+    paso = ("mientras grabo: [voice_note_info|0:00||[1,2][3,4]] [message_text|Mi secreto jaja||[5,6][7,8]] "
+            "[main_layout||Alvita, mensaje de voz, 6 segundos, 13:33|[1,1][2,2]] [single_msg_tv|Te quiero|]")
+    limpio = app_movil.privado(paso)
+    assert "secreto" not in limpio and "Te quiero" not in limpio and "Alvita" not in limpio
+    assert "voice_note_info|0:00" in limpio and "message_text|(oculto)" in limpio
+
+
 def test_un_acuse_tardio_no_pisa_el_resultado():
     tid = app_movil.encargar("whatsapp", {"numero": "+34600123456", "texto": "hola"})
     app_movil._siguiente_trabajo(True)

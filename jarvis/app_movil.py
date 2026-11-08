@@ -15,6 +15,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import sqlite3
 import subprocess
 import time
@@ -104,11 +105,22 @@ def _guardar_resultado(trabajo_id: int, estado_: str, detalle: str) -> None:
                        (trabajo_id,))
         else:
             db.execute("UPDATE app_trabajos SET estado=?, resultado=? WHERE id=? AND estado IN ('pendiente','entregado','recibido')",
-                       (estado_, detalle[:500], trabajo_id))
+                       (estado_, privado(detalle)[:500], trabajo_id))
     db.close()
 
 
+_PRIVADO = re.compile(r"\[(message_text|single_msg_tv|conversations_row_message_view|caption|quoted_text)\|[^|\]]*")
+_PRIVADO_DESC = re.compile(r"\[(main_layout|contact_row_container|contact_selector)\|([^|\]]*)\|[^|\]]*")
+
+
+def privado(texto: str) -> str:
+    """Quita de lo que cuenta la app el contenido de los chats (mensajes, vistas previas): solo deja los botones."""
+    texto = _PRIVADO.sub(lambda m: f"[{m.group(1)}|(oculto)", texto)
+    return _PRIVADO_DESC.sub(lambda m: f"[{m.group(1)}|{m.group(2)}|(oculto)", texto)
+
+
 def _guardar_paso(trabajo_id: int, paso: str) -> None:
+    paso = privado(paso)
     db = _db()
     with db:
         db.execute("UPDATE app_trabajos SET paso=? WHERE id=?", (paso[:1500], trabajo_id))
@@ -178,7 +190,7 @@ async def _hola(request: web.Request) -> web.Response:
         log.info("App JARVIS (%s): %s", datos.get("version", "?"), str(datos["evento"])[:200])
     if datos.get("paso") and str(datos.get("id", "")).isdigit():
         await asyncio.to_thread(_guardar_paso, int(datos["id"]), str(datos["paso"]))
-        log.info("App, trabajo %s: %s", datos["id"], str(datos["paso"])[:1500])
+        log.info("App, trabajo %s: %s", datos["id"], privado(str(datos["paso"]))[:1500])
         if str(datos["paso"]).startswith("esperando desbloqueo"):
             await asyncio.to_thread(avisar_desbloqueo)
     return web.json_response({"ok": True})
@@ -222,7 +234,7 @@ async def _resultado(request: web.Request) -> web.Response:
         await asyncio.to_thread(_guardar_resultado, int(datos["id"]), str(datos["estado"]), str(datos.get("detalle", "")))
     except (KeyError, ValueError):
         return web.json_response({"error": "faltan datos"}, status=400)
-    log.info("La app terminó el trabajo %s: %s %s", datos["id"], datos["estado"], str(datos.get("detalle", ""))[:120])
+    log.info("La app terminó el trabajo %s: %s %s", datos["id"], datos["estado"], privado(str(datos.get("detalle", "")))[:300])
     return web.json_response({"ok": True})
 
 
