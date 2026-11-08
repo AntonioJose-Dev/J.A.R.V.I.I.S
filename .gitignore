@@ -10,3 +10,6 @@ pruebas_audio/
 pc_comandos.json
 logs/
 build/
+
+# Modelos locales (embeddings de la memoria): se descargan solos
+modelos/

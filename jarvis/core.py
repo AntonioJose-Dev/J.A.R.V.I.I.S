@@ -30,6 +30,7 @@ from .prompts import system_prompt
 from .recordatorios import Recordatorios
 from .resumen import Resumen
 from .manos import Manos
+from .memoria import Memoria
 
 load_dotenv()
 log = logging.getLogger("jarvis")
@@ -63,7 +64,7 @@ def nota_de_hora(now: datetime | None = None) -> str:
     )
 
 
-class Jarvis(ControlPC, ControlMovil, Manos, Internet, Recordatorios, Resumen, Agent):
+class Jarvis(ControlPC, ControlMovil, Manos, Memoria, Internet, Recordatorios, Resumen, Agent):
     def __init__(
         self,
         memory: MemoryStore,
@@ -127,21 +128,30 @@ class Jarvis(ControlPC, ControlMovil, Manos, Internet, Recordatorios, Resumen, A
 
     @function_tool
     async def recordar(self, context: RunContext, hecho: str, sobre: str = "", tipo: str = "general",
-                       relacionados: str = "") -> str:
-        """Guarda un dato importante para recordarlo siempre, en el cerebro de JARVIS (notas enlazadas).
+                       relacionados: str = "", importante: bool = False, nombre_confirmado: bool = False) -> str:
+        """Guarda un dato que merezca la pena recordar (no trivialidades) en el cerebro de JARVIS (notas enlazadas).
+        Si ya lo sabía, no lo repite. Si CAMBIA algo que ya sabías (se mudó, cambió de trabajo), usa corregir_recuerdo.
 
         Args:
             hecho: el dato en una frase, por ejemplo "Es la madre de Potro y cumple años el 3 de mayo".
             sobre: de quién o de qué trata (será su nota), por ejemplo "Carmen". Vacío si no es de nada concreto.
             tipo: persona, lugar, proyecto, gusto, evento o general.
             relacionados: otras personas, lugares o cosas que aparecen, separadas por comas, p. ej. "Madrid, Potro".
+            importante: true si es algo importante (salud, alergias, fechas clave…): saldrá antes al buscar.
+            nombre_confirmado: true solo si el usuario ya confirmó que es una persona distinta de otra de nombre parecido.
         """
         b = boveda_activa()
         if b is None:  # sin Obsidian, la memoria es la base de datos
             m = self.memory.remember(f"{sobre}: {hecho}" if sobre else hecho, tipo)
             return f"Guardado (#{m.id})."
+        if sobre and not nombre_confirmado:
+            parecida = await asyncio.to_thread(b.parecida, sobre)
+            if parecida:  # ¿error de oído? («Albita» / «Alvita»): mejor preguntar que crear un duplicado
+                return (f"NO guardado todavía: ya conozco a «{parecida}», que se parece mucho a «{sobre}». Pregunta a "
+                        f"{OWNER} si es la misma. Si lo es, guarda con sobre=\"{parecida}\"; si es otra, repite con "
+                        "nombre_confirmado=true.")
         # Con Obsidian, ES la única fuente de verdad (antes se guardaba también en SQLite y esa copia nadie la leía)
-        nota = await asyncio.to_thread(b.recordar, hecho, sobre=sobre, tipo=tipo,
+        nota = await asyncio.to_thread(b.recordar, hecho, sobre=sobre, tipo=tipo, importante=importante,
                                        relacionados=[r for r in relacionados.split(",") if r.strip()])
         return f"Guardado en la nota «{nota}»."
 
@@ -159,6 +169,14 @@ class Jarvis(ControlPC, ControlMovil, Manos, Internet, Recordatorios, Resumen, A
             if not found:
                 return "No tengo nada guardado sobre eso."
             return "\n".join(f"- {m.text} ({m.created_at[:10]})" for m in found)
+        datos = await asyncio.to_thread(b.buscar_datos, consulta)  # híbrida: palabras + significado
+        if datos:
+            lineas = [f"- {d['texto']}" + (f" (desde {d['fecha']})" if d["fecha"] else "") for d in datos]
+            principal = await asyncio.to_thread(b.leer, datos[0]["nota"]) or ""
+            enlazadas = [e for e in b.enlaces(principal) if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", e)][:8]
+            if enlazadas:
+                lineas.append("Notas enlazadas (usa leer_nota para ver más): " + ", ".join(enlazadas))
+            return "\n".join(lineas)
         resultados = b.buscar(consulta)
         if not resultados:
             return "No tengo nada guardado sobre eso."
@@ -172,13 +190,18 @@ class Jarvis(ControlPC, ControlMovil, Manos, Internet, Recordatorios, Resumen, A
     @function_tool
     async def leer_nota(self, context: RunContext, nombre: str) -> str:
         """Lee una nota entera del cerebro de JARVIS (por ejemplo la de una persona) para tener todo el contexto.
+        Úsala para "¿qué sabes de X?". Los datos tachados (~~así~~) son antiguos: ya no valen.
 
         Args:
-            nombre: nombre de la nota, por ejemplo "Carmen".
+            nombre: nombre de la nota (o uno de sus alias), por ejemplo "Carmen".
         """
         b = boveda_activa()
-        texto = b.leer(nombre) if b else None
-        return texto or f"No hay ninguna nota llamada «{nombre}»."
+        texto = await asyncio.to_thread(b.leer, nombre) if b else None
+        if texto:
+            return texto
+        parecida = await asyncio.to_thread(b.parecida, nombre) if b else None
+        return (f"No hay ninguna nota «{nombre}». ¿Quizá es «{parecida}»?" if parecida
+                else f"No hay ninguna nota llamada «{nombre}».")
 
     @function_tool
     async def estado_jarvis(self, context: RunContext) -> str:

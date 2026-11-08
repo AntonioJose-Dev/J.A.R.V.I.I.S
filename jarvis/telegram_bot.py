@@ -239,6 +239,9 @@ class JarvisTelegram:
             self.servidor_app = None
         self.tarea_recordatorios = asyncio.create_task(self.vigilar_recordatorios(app))
         asyncio.create_task(self.comprobar_voz(app))
+        from . import memoria_indice
+
+        asyncio.create_task(asyncio.to_thread(memoria_indice.modelo))  # la memoria por significado, lista desde ya
         me = await app.bot.get_me()
         log.info("Bot @%s listo (%s; %s). Usuarios permitidos: %d",
                  me.username, self.plan.describir(), describir_voz(self.plan), len(self.permitidos))
@@ -393,6 +396,19 @@ class JarvisTelegram:
                         log.exception("No pude avisar del recordatorio %s; lo reintento", rid)
             except Exception:
                 log.exception("Fallo vigilando recordatorios")
+            try:  # cada noche (03:30): la memoria se ordena sola (repetidos fuera, índices al día)
+                ahora = time.localtime()
+                if ahora.tm_hour == 3 and ahora.tm_min >= 30 and self.memory.get_setting(
+                        "memoria.consolidada") != time.strftime("%Y-%m-%d"):
+                    from .core import boveda_activa
+
+                    b = boveda_activa()
+                    if b is not None:
+                        r = await asyncio.to_thread(b.consolidar)
+                        log.info("Memoria consolidada: %s", r)
+                    self.memory.set_setting("memoria.consolidada", time.strftime("%Y-%m-%d"))
+            except Exception:
+                log.exception("Fallo consolidando la memoria")
             try:
                 if resumen.toca(self.memory) and time.time() - reintento_resumen > 600:
                     reintento_resumen = time.time()

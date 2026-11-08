@@ -109,6 +109,8 @@ GRUPOS = {
            "estado_pc", "bloquear_pc", "accion_pc_delicada"},
     "movil": {"movil_info", "movil_hacer", "movil_mensaje", "guardar_contacto", "leer_whatsapp", "leer_chat_whatsapp", "usar_movil"},
     "internet": {"buscar_en_internet", "leer_pagina", "noticias", "tiempo"},
+    "memoria": {"corregir_recuerdo", "olvidar", "unir_personas", "que_te_conte_hoy", "apuntar_compromiso",
+                "ver_compromisos", "cumplir_compromiso", "leer_nota"},
     "recordatorios": {"programar_recordatorio", "ver_recordatorios", "borrar_recordatorio", "configurar_resumen"},
 }
 PALABRAS = {
@@ -122,6 +124,9 @@ PALABRAS = {
                 r"|temperatura|precio|cuesta|cuanto vale|cotiza|bitcoin|bolsa|resultado|partido|gano|quien gan|marcador"
                 r"|quien es|que es |que son|como se|donde esta (el|la)|horario|abre hoy|cierra hoy|pelicula|estreno"
                 r"|receta|ultim|hoy|ahora mismo|actual|web|pagina|http|www\.|\.com|investiga|averigua|informa(me|cion)",
+    "memoria": r"olvida|corrig|no es asi|eso no es|te equivocas|se ha mudado|ya no (vive|trabaja|esta)|que sabes de"
+               r"|que te he contado|que te conte|compromiso|prometi|le he dicho que|le dije que|dile a .* que (le|la|lo)"
+               r"|es la misma persona|son la misma|apunta que|cumplido|ya (le |la )?llame|ya lo hice",
     "recordatorios": r"recuerda(me|le)|recordatorio|avisa(me)?|no se me olvide|no me dejes olvidar|alarma de"
                      r"|dentro de \d+|en \d+ (minuto|hora)|a las \d|resumen",
 }

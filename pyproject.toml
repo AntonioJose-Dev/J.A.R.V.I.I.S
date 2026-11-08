@@ -15,6 +15,7 @@ dependencies = [
     "send2trash>=1.8",
     "ddgs>=9",
     "trafilatura>=2",
+    "fastembed>=0.4",
     "tzdata; sys_platform == 'win32'",
 ]
 
