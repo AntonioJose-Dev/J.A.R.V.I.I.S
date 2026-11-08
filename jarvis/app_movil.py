@@ -19,6 +19,7 @@ import re
 import sqlite3
 import subprocess
 import time
+from pathlib import Path
 
 from aiohttp import web
 
@@ -345,6 +346,37 @@ async def _saludo_voz(request: web.Request) -> web.Response:
     return web.Response(body=_saludos[n], content_type="audio/ogg")
 
 
+RUTA_APK = Path("build/companion/JARVIS.apk")
+MANIFIESTO = Path("companion/AndroidManifest.xml")
+
+
+def version_apk() -> dict | None:
+    """La versión de la app JARVIS que hay compilada en el PC (para «Actualizar JARVIS»)."""
+    import hashlib
+
+    if not RUTA_APK.exists() or not MANIFIESTO.exists():
+        return None
+    m = re.search(r'android:versionName="([^"]+)"', MANIFIESTO.read_text(encoding="utf-8"))
+    return {"version": m.group(1) if m else "?", "sha256": hashlib.sha256(RUTA_APK.read_bytes()).hexdigest(),
+            "tamano": RUTA_APK.stat().st_size}
+
+
+async def _version_apk(request: web.Request) -> web.Response:
+    if await _leer(request) is None:
+        return web.json_response({"error": "código incorrecto"}, status=401)
+    info = await asyncio.to_thread(version_apk)
+    return web.json_response(info) if info else web.json_response({"error": "no hay app compilada"}, status=404)
+
+
+async def _apk(request: web.Request) -> web.Response:
+    if await _leer(request) is None:
+        return web.json_response({"error": "código incorrecto"}, status=401)
+    if not RUTA_APK.exists():
+        return web.json_response({"error": "no hay app compilada"}, status=404)
+    log.info("App JARVIS descargada por el móvil para actualizarse")
+    return web.Response(body=RUTA_APK.read_bytes(), content_type="application/vnd.android.package-archive")
+
+
 async def arrancar_servidor() -> web.AppRunner | None:
     """Arranca el servidor en la IP de Tailscale. Sin Tailscale o sin código, no arranca (y lo dice)."""
     if not os.getenv("JARVIS_APP_TOKEN", "").strip():
@@ -357,7 +389,8 @@ async def arrancar_servidor() -> web.AppRunner | None:
     app = web.Application(client_max_size=MAX_AUDIO)
     app.add_routes([web.post("/app/hola", _hola), web.post("/app/espera", _espera),
                     web.post("/app/resultado", _resultado), web.post("/app/audio", _audio),
-                    web.post("/app/voz", _voz), web.post("/app/saludo", _saludo_voz)])
+                    web.post("/app/voz", _voz), web.post("/app/saludo", _saludo_voz),
+                    web.post("/app/version_apk", _version_apk), web.post("/app/apk", _apk)])
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     await web.TCPSite(runner, ip, PUERTO).start()

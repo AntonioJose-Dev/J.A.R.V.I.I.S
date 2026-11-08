@@ -66,10 +66,29 @@ public class Reactor extends View {
         brillo.setAlpha((int) (90 + 120 * suave));
         c.drawCircle(cx, cy, R * (0.42f + 0.08f * suave), brillo);
 
-        // Núcleo
+        // Núcleo: disco + «iris» hexagonal de 6 láminas que se abre con la voz (diseño propio)
         relleno.setColor(CIAN);
         relleno.setAlpha((int) (40 + 140 * suave));
         c.drawCircle(cx, cy, R * (0.16f + 0.10f * suave), relleno);
+        linea.setColor(Color.WHITE);
+        linea.setAlpha(190);
+        linea.setStrokeWidth(R * 0.009f);
+        float rExt = R * 0.15f, rInt = R * (0.04f + 0.07f * suave);
+        for (int i = 0; i < 6; i++) {
+            double a1 = Math.toRadians(i * 60 - giro * 0.5), a2 = Math.toRadians(i * 60 + 60 - giro * 0.5);
+            double ai = Math.toRadians(i * 60 + 30 - giro * 0.5);
+            float x1 = cx + (float) Math.cos(a1) * rExt, y1 = cy + (float) Math.sin(a1) * rExt;
+            float x2 = cx + (float) Math.cos(a2) * rExt, y2 = cy + (float) Math.sin(a2) * rExt;
+            c.drawLine(x1, y1, x2, y2, linea);                                        // borde del hexágono
+            c.drawLine(x1, y1, cx + (float) Math.cos(ai) * rInt, cy + (float) Math.sin(ai) * rInt, linea);  // lámina
+        }
+        // Anillo punteado interior que gira al revés
+        linea.setColor(CIAN);
+        for (int i = 0; i < 36; i++) {
+            double a = Math.toRadians(i * 10 + giro * 1.6);
+            float rp = R * 0.30f;
+            c.drawPoint(cx + (float) Math.cos(a) * rp, cy + (float) Math.sin(a) * rp, linea);
+        }
         linea.setColor(CIAN);
         linea.setAlpha(255);
         linea.setStrokeWidth(R * 0.012f);

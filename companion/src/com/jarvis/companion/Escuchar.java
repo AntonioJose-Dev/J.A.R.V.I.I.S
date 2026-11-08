@@ -81,6 +81,7 @@ public class Escuchar extends Activity {
 
     private Reactor reactor;
     private TextView fase, transcripcion, reloj, sistema, listaPasos;
+    private Onda onda;
     private static final int CIAN = Color.parseColor("#4FD8FF");
     private static final int CIAN_TENUE = Color.parseColor("#7FB8CC");
 
@@ -98,7 +99,8 @@ public class Escuchar extends Activity {
         super.onCreate(b);
         // HUD: capa oscura translúcida sobre lo que tengas abierto, con el reactor en el centro
         android.widget.FrameLayout raiz = new android.widget.FrameLayout(this);
-        raiz.setBackgroundColor(Color.parseColor("#E0020A12"));
+        raiz.setBackgroundColor(Color.parseColor("#E8020A12"));
+        raiz.addView(new Fondo(this, false), new android.widget.FrameLayout.LayoutParams(-1, -1));  // rejilla, visor, escaneo
         int ancho = getResources().getDisplayMetrics().widthPixels;
         int m = (int) (ancho * 0.05f);
 
@@ -124,37 +126,46 @@ public class Escuchar extends Activity {
         centro.setOrientation(LinearLayout.VERTICAL);
         centro.setGravity(Gravity.CENTER_HORIZONTAL);
         reactor = new Reactor(this);
-        centro.addView(reactor, new LinearLayout.LayoutParams((int) (ancho * 0.78f), (int) (ancho * 0.78f)));
+        centro.addView(reactor, new LinearLayout.LayoutParams((int) (ancho * 0.74f), (int) (ancho * 0.74f)));
         fase = texto(13, CIAN, true);
         fase.setGravity(Gravity.CENTER);
         fase.setShadowLayer(12, 0, 0, CIAN);
-        fase.setPadding(0, m / 2, 0, m / 2);
+        fase.setPadding(0, m / 3, 0, m / 3);
         centro.addView(fase);
+        onda = new Onda(this);  // la onda de voz
+        LinearLayout.LayoutParams lo = new LinearLayout.LayoutParams((int) (ancho * 0.7f), Estilo.dp(this, 36));
+        lo.gravity = Gravity.CENTER_HORIZONTAL;
+        centro.addView(onda, lo);
         transcripcion = texto(14, Color.parseColor("#E6F7FF"), true);
         transcripcion.setLetterSpacing(0.02f);
         transcripcion.setGravity(Gravity.CENTER);
-        transcripcion.setPadding(m, 0, m, 0);
+        transcripcion.setPadding(m, m / 2, m, 0);
         centro.addView(transcripcion);
-        listaPasos = texto(12, Color.parseColor("#7CFFB2"), true);  // panel de pasos, en verde terminal
+        // Registro de operaciones: siempre visible, con su marco
+        LinearLayout registro = new LinearLayout(this);
+        registro.setOrientation(LinearLayout.VERTICAL);
+        registro.setBackground(Estilo.marco(this, Estilo.CIAN_OSCURO));
+        int pr = Estilo.dp(this, 10);
+        registro.setPadding(pr, pr, pr, pr);
+        registro.addView(Estilo.rotulo(this, "Registro de operaciones"));
+        listaPasos = texto(12, Color.parseColor("#7CFFB2"), true);  // en verde terminal
         listaPasos.setLetterSpacing(0.04f);
-        listaPasos.setGravity(Gravity.START);
-        listaPasos.setPadding(m * 2, m / 2, m, 0);
-        centro.addView(listaPasos, new LinearLayout.LayoutParams(-1, -2));
+        listaPasos.setText("› A la espera de órdenes");
+        listaPasos.setPadding(0, Estilo.dp(this, 4), 0, 0);
+        registro.addView(listaPasos);
+        LinearLayout.LayoutParams lreg = new LinearLayout.LayoutParams(-1, -2);
+        lreg.setMargins(m, m / 2, m, 0);
+        centro.addView(registro, lreg);
         raiz.addView(centro, new android.widget.FrameLayout.LayoutParams(-1, -2, Gravity.CENTER));
-
-        // Línea de escaneo que recorre la pantalla
-        View escaneo = new View(this);
-        escaneo.setBackgroundColor(Color.parseColor("#334FD8FF"));
-        raiz.addView(escaneo, new android.widget.FrameLayout.LayoutParams(-1, 3, Gravity.TOP));
-        android.animation.ObjectAnimator barrido = android.animation.ObjectAnimator.ofFloat(escaneo, "translationY", 0,
-                getResources().getDisplayMetrics().heightPixels);
-        barrido.setDuration(3500);
-        barrido.setRepeatCount(android.animation.ValueAnimator.INFINITE);
-        barrido.start();
 
         setContentView(raiz);
         raiz.setAlpha(0f);
-        raiz.animate().alpha(1f).setDuration(350).start();  // aparece suave
+        raiz.animate().alpha(1f).setDuration(300).start();  // aparece suave…
+        reactor.setScaleX(0.3f);
+        reactor.setScaleY(0.3f);
+        reactor.setRotation(-90f);
+        reactor.animate().scaleX(1f).scaleY(1f).rotation(0f).setDuration(650)
+                .setInterpolator(new android.view.animation.OvershootInterpolator(1.2f)).start();  // …y el núcleo se despliega
         actualizarHud();
         abierta = this;
         estado = transcripcion;
@@ -265,8 +276,12 @@ public class Escuchar extends Activity {
                     llego[0] = true;
                     fase(Reactor.HABLANDO, "RESPONDIENDO");
                     escribir("› " + r.optString("entendido") + "\n\n", r.optString("respuesta"));
+                    Conexion.prefs(this).edit().putString("ultima_orden", "› " + r.optString("entendido") + "\n‹ "
+                            + r.optString("respuesta")).apply();  // para el panel principal
                     String audio = r.optString("audio");
+                    onda.hablando(true);  // la onda se mueve mientras habla JARVIS
                     if (!audio.isEmpty()) reproducir(Base64.decode(audio, Base64.DEFAULT));
+                    onda.hablando(false);
                 } catch (Exception e) {
                     poner("No he podido hablar con JARVIS: " + e.getMessage());
                     Conexion.error(this, "botón JARVIS: " + e.getMessage());
@@ -355,6 +370,7 @@ public class Escuchar extends Activity {
             double rms = Math.sqrt(suma / n);
             final float nv = (float) Math.min(1.0, rms / 2500.0);
             runOnUiThread(() -> reactor.nivel(nv));  // el reactor late con tu voz
+            onda.nivel(nv);
             if (total <= 3) {  // los primeros 300 ms miden el ruido de fondo
                 fondo = fondo < 0 ? rms : (fondo + rms) / 2;
             }

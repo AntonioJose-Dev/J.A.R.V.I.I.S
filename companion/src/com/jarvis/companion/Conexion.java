@@ -17,7 +17,7 @@ import java.nio.charset.StandardCharsets;
  * La dirección del PC y el código secreto van dentro de la app (se ponen al compilarla).
  */
 final class Conexion {
-    static final String VERSION = "2.5.2";
+    static final String VERSION = "2.6";
 
     private Conexion() {}
 

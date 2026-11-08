@@ -217,6 +217,26 @@ def test_limites_de_seguridad_de_whatsapp():
         movil.ritmo_whatsapp(ahora)
 
 
+async def test_actualizar_jarvis_desde_el_pc(monkeypatch, tmp_path):
+    import hashlib
+
+    apk, manifiesto = tmp_path / "JARVIS.apk", tmp_path / "AndroidManifest.xml"
+    apk.write_bytes(b"PK-apk-de-prueba")
+    manifiesto.write_text('<manifest android:versionCode="26" android:versionName="2.6">', encoding="utf-8")
+    monkeypatch.setattr(app_movil, "RUTA_APK", apk)
+    monkeypatch.setattr(app_movil, "MANIFIESTO", manifiesto)
+    app = web.Application()
+    app.add_routes([web.post("/app/version_apk", app_movil._version_apk), web.post("/app/apk", app_movil._apk)])
+    c = TestClient(TestServer(app))
+    await c.start_server()
+    h = {"X-Jarvis-Token": TOKEN}
+    assert (await c.post("/app/apk", json={})).status == 401
+    info = await (await c.post("/app/version_apk", json={}, headers=h)).json()
+    assert info == {"version": "2.6", "sha256": hashlib.sha256(b"PK-apk-de-prueba").hexdigest(), "tamano": 16}
+    assert await (await c.post("/app/apk", json={}, headers=h)).read() == b"PK-apk-de-prueba"
+    await c.close()
+
+
 def test_un_acuse_tardio_no_pisa_el_resultado():
     tid = app_movil.encargar("whatsapp", {"numero": "+34600123456", "texto": "hola"})
     app_movil._siguiente_trabajo(True)
