@@ -412,6 +412,7 @@ public class Accesibilidad extends AccessibilityService {
 
     /** Si la nota de voz no se puede grabar, se manda el mismo audio como «Audio» (y se dice por qué). */
     private void pasarAArchivo(long id, String motivo) {
+        teclado();
         paso(id, "nota de voz imposible: " + motivo + " → lo mando como Audio");
         soltarReproductor();
         notaDeVoz = false;
@@ -445,6 +446,34 @@ public class Accesibilidad extends AccessibilityService {
             }
         }
         return null;
+    }
+
+    /** Pulsa el micrófono solo cuando lleva quieto 0,7 s en el mismo sitio (el teclado ya no lo mueve). */
+    private void esperarQuieto(long id, android.graphics.Rect antes, int vueltas) {
+        if (trabajoId != id) return;
+        AccessibilityNodeInfo mic = microfono();
+        if (mic == null) {
+            teclado();
+            pasarAArchivo(id, "el micrófono desapareció de la pantalla");
+            return;
+        }
+        android.graphics.Rect ahora = new android.graphics.Rect();
+        mic.getBoundsInScreen(ahora);
+        if (!ahora.equals(antes) && vueltas < 6) {
+            principal.postDelayed(() -> esperarQuieto(id, ahora, vueltas + 1), 700);
+            return;
+        }
+        String vid = mic.getViewIdResourceName() == null ? "" : mic.getViewIdResourceName().replaceAll("^.*:id/", "");
+        paso(id, "micrófono quieto en " + ahora.toShortString() + " [" + vid + "|" + mic.getContentDescription() + "]");
+        grabarNota(id, mic);
+    }
+
+    /** Devuelve el teclado a su modo normal. */
+    private void teclado() {
+        try {
+            getSoftKeyboardController().setShowMode(SHOW_MODE_AUTO);
+        } catch (Exception ignored) {
+        }
     }
 
     private void grabarNota(long id, AccessibilityNodeInfo mic) {
@@ -488,6 +517,8 @@ public class Accesibilidad extends AccessibilityService {
             return;
         }
         principal.postDelayed(() -> {
+            // ¿Está grabando? (lo que se ve en pantalla se manda al PC para poder comprobarlo)
+            paso(id, "mientras grabo, abajo: " + volcadoAbajo());
             try {
                 reproductor.start();
             } catch (Exception e) {
@@ -502,10 +533,12 @@ public class Accesibilidad extends AccessibilityService {
         } catch (Exception ignored) {
         }
         soltarReproductor();
+        teclado();
     }
 
     /** Tras soltar el micrófono, WhatsApp la envía. Se comprueba en la lista de chats que aparece como nota de voz. */
     private void comprobarNota(long id) {
+        paso(id, "tras soltar, abajo: " + volcadoAbajo());
         performGlobalAction(GLOBAL_ACTION_BACK);
         principal.postDelayed(() -> {
             String como = audioYaEnviado();
@@ -559,7 +592,15 @@ public class Accesibilidad extends AccessibilityService {
             AccessibilityNodeInfo mic = microfono();
             if (mic == null) return;
             pulsado = true;
-            grabarNota(trabajoId, mic);
+            final long id = trabajoId;
+            // El teclado puede estar saliendo y mover el micrófono: se esconde y se espera a que el botón esté quieto
+            try {
+                getSoftKeyboardController().setShowMode(SHOW_MODE_HIDDEN);
+            } catch (Exception ignored) {
+            }
+            android.graphics.Rect antes = new android.graphics.Rect();
+            mic.getBoundsInScreen(antes);
+            principal.postDelayed(() -> esperarQuieto(id, antes, 0), 700);
             return;
         }
         if (modoAudio) {
@@ -653,6 +694,30 @@ public class Accesibilidad extends AccessibilityService {
             if (n.isClickable()) return n.performAction(AccessibilityNodeInfo.ACTION_CLICK);
         }
         return false;
+    }
+
+    /** Lo de la parte de abajo de la pantalla (donde están la caja de texto, el micrófono y el contador de grabación). */
+    private String volcadoAbajo() {
+        int alto = getResources().getDisplayMetrics().heightPixels;
+        StringBuilder sb = new StringBuilder();
+        java.util.ArrayDeque<AccessibilityNodeInfo> cola = new java.util.ArrayDeque<>(raicesWhatsapp());
+        int n = 0;
+        android.graphics.Rect b = new android.graphics.Rect();
+        while (!cola.isEmpty() && n < 25) {
+            AccessibilityNodeInfo x = cola.poll();
+            if (x == null) continue;
+            x.getBoundsInScreen(b);
+            if (x.isVisibleToUser() && b.top > alto * 0.6
+                    && (x.isClickable() || x.getText() != null || x.getContentDescription() != null)) {
+                String id = x.getViewIdResourceName() == null ? "" : x.getViewIdResourceName().replaceAll("^.*:id/", "");
+                sb.append("[").append(id).append("|").append(x.getText() == null ? "" : x.getText())
+                  .append("|").append(x.getContentDescription() == null ? "" : x.getContentDescription())
+                  .append("|").append(b.toShortString()).append("] ");
+                n++;
+            }
+            for (int i = 0; i < x.getChildCount(); i++) cola.add(x.getChild(i));
+        }
+        return sb.length() == 0 ? "(nada abajo)" : sb.toString();
     }
 
     /** Lo que hay en las ventanas de WhatsApp: botones y textos visibles (id | texto | descripción). */
