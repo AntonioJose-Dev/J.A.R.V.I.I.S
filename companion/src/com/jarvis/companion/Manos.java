@@ -163,8 +163,104 @@ final class Manos {
                     throw new Exception("ese tipo de enlace no lo abro (" + esquema + ")");
                 }
                 Intent i = new Intent(Intent.ACTION_VIEW, u).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                String paquete = paqueteDe(s, a.optString("app"));  // p. ej. abrirlo en Chrome o en Instagram
+                if (paquete != null) i.setPackage(paquete);
+                try {
+                    s.startActivity(i);
+                } catch (android.content.ActivityNotFoundException e) {
+                    i.setPackage(null);  // si esa app no lo abre, que lo abra la que toque
+                    s.startActivity(i);
+                }
+                return "abierto " + (u.getHost() != null ? u.getHost() : esquema);
+            }
+            case "reproducir": {
+                // «Pon Queen en Spotify»: la app de música busca y EMPIEZA a sonar sola (sin tocar nada)
+                Intent i = new Intent(android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH)
+                        .putExtra(android.app.SearchManager.QUERY, a.optString("consulta"))
+                        .putExtra(android.provider.MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*")
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                String paquete = paqueteDe(s, a.optString("app", "Spotify"));
+                if (paquete != null) i.setPackage(paquete);
                 s.startActivity(i);
-                return "abierto " + u.getHost();
+                return "reproduciendo «" + a.optString("consulta") + "»";
+            }
+            case "ajustes": {
+                // Una pantalla concreta de Ajustes
+                String que = sinAcentos(a.optString("pantalla"));
+                String accion = que.contains("wifi") ? android.provider.Settings.ACTION_WIFI_SETTINGS
+                        : que.contains("bluetooth") ? android.provider.Settings.ACTION_BLUETOOTH_SETTINGS
+                        : que.contains("brillo") || que.contains("pantalla") ? android.provider.Settings.ACTION_DISPLAY_SETTINGS
+                        : que.contains("sonido") || que.contains("volumen") ? android.provider.Settings.ACTION_SOUND_SETTINGS
+                        : que.contains("bateria") ? Intent.ACTION_POWER_USAGE_SUMMARY
+                        : que.contains("aplicacion") || que.contains("apps") ? android.provider.Settings.ACTION_APPLICATION_SETTINGS
+                        : que.contains("ubicacion") || que.contains("gps") ? android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS
+                        : que.contains("notificacion") ? android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS
+                        : que.contains("no molestar") ? android.provider.Settings.ACTION_ZEN_MODE_PRIORITY_SETTINGS
+                        : que.contains("datos") || que.contains("red") ? android.provider.Settings.ACTION_WIRELESS_SETTINGS
+                        : que.contains("almacenamiento") ? android.provider.Settings.ACTION_INTERNAL_STORAGE_SETTINGS
+                        : que.contains("accesibilidad") ? android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS
+                        : que.contains("idioma") ? android.provider.Settings.ACTION_LOCALE_SETTINGS
+                        : que.contains("fecha") || que.contains("hora") ? android.provider.Settings.ACTION_DATE_SETTINGS
+                        : android.provider.Settings.ACTION_SETTINGS;
+                Intent i = new Intent(accion).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (accion.equals(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)) {
+                    i = new Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                }
+                s.startActivity(i);
+                return "abiertos los ajustes de " + (que.isEmpty() ? "Android" : que);
+            }
+            case "media": {
+                // Pausa / sigue / siguiente / anterior en CUALQUIER app de música o vídeo (al instante)
+                String que = a.optString("tecla", "pausa");
+                int tecla = que.equals("siguiente") ? android.view.KeyEvent.KEYCODE_MEDIA_NEXT
+                        : que.equals("anterior") ? android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS
+                        : que.equals("play") ? android.view.KeyEvent.KEYCODE_MEDIA_PLAY
+                        : que.equals("pausa") ? android.view.KeyEvent.KEYCODE_MEDIA_PAUSE
+                        : android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
+                android.media.AudioManager am = (android.media.AudioManager) s.getSystemService(AccessibilityService.AUDIO_SERVICE);
+                am.dispatchMediaKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, tecla));
+                am.dispatchMediaKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, tecla));
+                return "música: " + que;
+            }
+            case "no_molestar": {
+                android.app.NotificationManager nm = s.getSystemService(android.app.NotificationManager.class);
+                if (!nm.isNotificationPolicyAccessGranted()) {
+                    s.startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                    throw new Exception("falta un permiso de una sola vez: te he abierto la pantalla; activa JARVIS en «Acceso a No molestar»");
+                }
+                boolean on = !"off".equals(a.optString("estado", "on"));
+                nm.setInterruptionFilter(on ? android.app.NotificationManager.INTERRUPTION_FILTER_PRIORITY
+                        : android.app.NotificationManager.INTERRUPTION_FILTER_ALL);
+                return "no molestar " + (on ? "activado" : "desactivado");
+            }
+            case "brillo": {
+                if (!android.provider.Settings.System.canWrite(s)) {
+                    s.startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                            android.net.Uri.parse("package:" + s.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                    throw new Exception("falta un permiso de una sola vez: te he abierto la pantalla; activa «Modificar ajustes del sistema»");
+                }
+                int pct = Math.max(1, Math.min(100, a.optInt("nivel", 50)));
+                android.content.ContentResolver cr = s.getContentResolver();
+                android.provider.Settings.System.putInt(cr, android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE,
+                        android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL);
+                android.provider.Settings.System.putInt(cr, android.provider.Settings.System.SCREEN_BRIGHTNESS, pct * 255 / 100);
+                return "brillo al " + pct + " %";
+            }
+            case "tocar_texto": {
+                // Toca el elemento visible que dice ese texto (o su descripción): JARVIS no tiene que adivinar números
+                AccessibilityNodeInfo x = buscarTexto(s, a.optString("texto"));
+                if (x == null) throw new Exception("no veo nada que diga «" + a.optString("texto") + "» en la pantalla");
+                for (AccessibilityNodeInfo p = x; p != null; p = p.getParent()) {
+                    if (p.isClickable()) {
+                        if (p.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return "tocado «" + a.optString("texto") + "»";
+                        break;
+                    }
+                }
+                Rect b = new Rect();
+                x.getBoundsInScreen(b);
+                gesto(s, b.centerX(), b.centerY(), b.centerX(), b.centerY(), 60);
+                return "tocado «" + a.optString("texto") + "» (en su posición)";
             }
             case "cerrar": {
                 // Android no deja a otra app "matar" una app; se sale de ella (atrás y a inicio)
@@ -197,6 +293,43 @@ final class Manos {
 
     private static String sinAcentos(String s) {
         return Normalizer.normalize(s == null ? "" : s, Normalizer.Form.NFD).replaceAll("\\p{M}", "").toLowerCase().trim();
+    }
+
+    /** El nodo visible cuyo texto o descripción coincide (primero exacto, luego «contiene»). */
+    private static AccessibilityNodeInfo buscarTexto(AccessibilityService s, String texto) {
+        String buscado = sinAcentos(texto);
+        if (buscado.isEmpty()) return null;
+        AccessibilityNodeInfo r = raiz(s);
+        if (r == null) return null;
+        AccessibilityNodeInfo contiene = null;
+        ArrayDeque<AccessibilityNodeInfo> cola = new ArrayDeque<>();
+        cola.add(r);
+        while (!cola.isEmpty()) {
+            AccessibilityNodeInfo x = cola.poll();
+            if (x == null) continue;
+            for (int i = 0; i < x.getChildCount(); i++) cola.add(x.getChild(i));
+            if (!x.isVisibleToUser()) continue;
+            for (CharSequence cs : new CharSequence[]{x.getText(), x.getContentDescription()}) {
+                if (cs == null) continue;
+                String t = sinAcentos(cs.toString());
+                if (t.equals(buscado)) return x;
+                if (contiene == null && t.contains(buscado) && t.length() < buscado.length() * 4 + 20) contiene = x;
+            }
+        }
+        return contiene;
+    }
+
+    /** El paquete de una app por su nombre («Chrome», «Spotify»…) o null si no se dijo o no está. */
+    private static String paqueteDe(AccessibilityService s, String nombre) {
+        if (nombre == null || nombre.trim().isEmpty()) return null;
+        if (nombre.contains(".")) return nombre;
+        PackageManager pm = s.getPackageManager();
+        String buscado = sinAcentos(nombre);
+        for (ResolveInfo ri : pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)) {
+            String et = sinAcentos(String.valueOf(ri.loadLabel(pm)));
+            if (et.equals(buscado) || et.contains(buscado)) return ri.activityInfo.packageName;
+        }
+        return null;
     }
 
     /** Abre una app por su nombre ("YouTube", "notas") o su paquete. */

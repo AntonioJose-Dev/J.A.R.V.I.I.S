@@ -88,19 +88,72 @@ def resolver(texto: str) -> tuple[dict, str] | None:
         q = _limpio(texto, m.group(1))
         return ({"tipo": "enlace", "url": "https://www.youtube.com/results?search_query=" + quote_plus(q)},
                 f"Buscando {q} en YouTube, señor.")
-    m = re.match(_COMIENZO + r"(?:pon(?:me)?|reproduce|busca)\s+(.+?)\s+en spotify" + _MOVIL + r"$", t)
+    # --- Spotify y música -----------------------------------------------------------------------------
+    m = re.match(_COMIENZO + r"(?:pon(?:me)?|reproduce|toca)\s+(.+?)\s+en spotify" + _MOVIL + r"$", t)
+    if m:
+        q = _limpio(texto, m.group(1))
+        return {"tipo": "reproducir", "consulta": q, "app": "Spotify"}, f"Poniendo {q} en Spotify, señor."
+    m = re.match(_COMIENZO + r"busca\s+(.+?)\s+en spotify" + _MOVIL + r"$", t)
     if m:
         q = _limpio(texto, m.group(1))
         return {"tipo": "enlace", "url": "spotify:search:" + quote(q)}, f"Buscando {q} en Spotify, señor."
-    m = re.match(_COMIENZO + r"(?:llevame|como llego|navega|vamos)\s+(?:a|hasta|hacia)\s+(.+)$", t)
+    tecla = None
+    if re.match(_COMIENZO + r"(?:pausa|pausa la musica|para la musica|deten la musica|pon pausa|quita la musica)" + _MOVIL + r"$", t):
+        tecla, decir = "pausa", "Música en pausa."
+    elif re.match(_COMIENZO + r"(?:reanuda|continua|sigue)(?:\s+(?:la\s+)?musica)?" + _MOVIL + r"$", t) or re.match(
+            _COMIENZO + r"pon la musica" + _MOVIL + r"$", t):
+        tecla, decir = "play", "Seguimos con la música."
+    elif re.match(_COMIENZO + r"(?:siguiente(?:\s+cancion)?|pasa(?:\s+de)?\s+(?:la\s+)?cancion|salta(?:\s+la\s+cancion)?|"
+                  r"pon la siguiente)" + _MOVIL + r"$", t):
+        tecla, decir = "siguiente", "Siguiente canción."
+    elif re.match(_COMIENZO + r"(?:(?:la\s+)?cancion anterior|anterior|vuelve a la anterior|pon la anterior)" + _MOVIL + r"$", t):
+        tecla, decir = "anterior", "Canción anterior."
+    if tecla:
+        return {"tipo": "media", "tecla": tecla}, decir
+    # --- Maps -----------------------------------------------------------------------------------------
+    m = re.match(_COMIENZO + r"(?:llevame|como llego|navega|vamos|guiame)\s+(andando|a pie|en bici|en bicicleta|en coche)?\s*"
+                 r"(?:a|hasta|hacia)\s+(.+?)(?:\s+(andando|a pie|en bici|en bicicleta|en coche))?$", t)
     if m:
-        q = _limpio(texto, m.group(1))
-        return ({"tipo": "enlace", "url": "https://www.google.com/maps/dir/?api=1&destination=" + quote_plus(q)},
+        q = _limpio(texto, m.group(2))
+        modo = (m.group(1) or m.group(3) or "").strip()
+        sufijo = "&mode=w" if modo in ("andando", "a pie") else "&mode=b" if "bici" in modo else ""
+        return ({"tipo": "enlace", "url": "google.navigation:q=" + quote_plus(q) + sufijo},
                 f"Le llevo a {q}, señor.")
-    m = re.match(_COMIENZO + r"busca(?:me)?\s+(.+?)\s+en google" + _MOVIL + r"$", t)
+    m = re.match(_COMIENZO + r"(?:busca(?:me)?\s+)?(.+?)\s+cerca(?:\s+de\s+(?:mi|aqui))?" + _MOVIL + r"$", t)
+    if m and not re.search(r"\b(que|quien|como)\b", m.group(1)):
+        q = _limpio(texto, m.group(1))
+        return {"tipo": "enlace", "url": "geo:0,0?q=" + quote_plus(q + " cerca")}, f"Buscando {q} cerca, señor."
+    m = re.match(_COMIENZO + r"busca(?:me)?\s+(.+?)\s+en (?:google )?maps" + _MOVIL + r"$", t)
     if m:
         q = _limpio(texto, m.group(1))
-        return {"tipo": "enlace", "url": "https://www.google.com/search?q=" + quote_plus(q)}, f"Buscando {q}, señor."
+        return {"tipo": "enlace", "url": "geo:0,0?q=" + quote_plus(q)}, f"Buscando {q} en el mapa, señor."
+    # --- Instagram ------------------------------------------------------------------------------------
+    m = re.match(_COMIENZO + r"(?:abre|busca(?:me)?|ensename|enseñame|mira)\s+(?:el\s+perfil\s+de\s+|a\s+)?@?([a-z0-9._]{2,30})"
+                 r"\s+en instagram" + _MOVIL + r"$", t)
+    if m:
+        usuario = m.group(1)
+        return ({"tipo": "enlace", "url": f"https://www.instagram.com/_u/{usuario}", "app": "Instagram"},
+                f"Abriendo el perfil de {usuario} en Instagram, señor.")
+    # --- Chrome / Google --------------------------------------------------------------------------------
+    m = re.match(_COMIENZO + r"busca(?:me)?\s+(.+?)\s+en (google|chrome|internet)" + _MOVIL + r"$", t)
+    if m:
+        q = _limpio(texto, m.group(1))
+        accion = {"tipo": "enlace", "url": "https://www.google.com/search?q=" + quote_plus(q)}
+        if m.group(2) == "chrome":
+            accion["app"] = "Chrome"
+        return accion, f"Buscando {q}, señor."
+    # --- Ajustes ----------------------------------------------------------------------------------------
+    m = re.match(_COMIENZO + r"(?:abre|ve a|llevame a)\s+(?:los\s+)?ajustes\s+(?:de\s+|del\s+|de la\s+)?(\w[\w ]*?)" + _MOVIL + r"$", t)
+    if m:
+        return {"tipo": "ajustes", "pantalla": m.group(1)}, f"Le abro los ajustes de {m.group(1)}, señor."
+    m = re.match(_COMIENZO + r"(activa|pon|quita|desactiva)\s+(?:el\s+)?(?:modo\s+)?no molestar" + _MOVIL + r"$", t)
+    if m:
+        on = m.group(1) in ("activa", "pon")
+        return {"tipo": "no_molestar", "estado": "on" if on else "off"}, f"No molestar {'activado' if on else 'desactivado'}."
+    m = re.match(_COMIENZO + r"(?:pon|sube|baja)\s+el\s+brillo\s+(?:al|a)\s+(\d{1,3}|maximo|minimo|medio)(?:\s*%|\s+por\s*ciento)?" + _MOVIL + r"$", t)
+    if m:
+        nivel = {"maximo": 100, "minimo": 5, "medio": 50}.get(m.group(1)) or min(100, int(m.group(1)))
+        return {"tipo": "brillo", "nivel": nivel}, f"Brillo al {nivel} por ciento."
     m = re.match(_COMIENZO + r"abre(?:me)?\s+(?:la\s+app\s+(?:de\s+)?|la\s+aplicacion\s+(?:de\s+)?|el\s+|la\s+)?"
                  r"([a-z0-9][a-z0-9 +]{1,24}?)" + _MOVIL + r"$", t)
     if m and not re.search(r"\b(y|que|para|con|a|de)\b", m.group(1)) and m.group(1) not in ("pc", "ordenador"):

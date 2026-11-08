@@ -9,8 +9,8 @@ from jarvis import atajos
     ("Abre YouTube y busca música relajante", "enlace", "youtube.com/results?search_query=m%C3%BAsica+relajante"),
     ("Jarvis, busca música relajante en YouTube.", "enlace", "search_query=m%C3%BAsica+relajante"),
     ("Abre YouTube en el móvil y busca música relajante", "enlace", "search_query=m%C3%BAsica+relajante"),
-    ("Pon Queen en Spotify", "enlace", "spotify:search:Queen"),
-    ("Llévame a Sevilla", "enlace", "destination=Sevilla"),
+    ("Busca Queen en Spotify", "enlace", "spotify:search:Queen"),
+    ("Llévame a Sevilla", "enlace", "google.navigation:q=Sevilla"),
     ("Busca recetas de lentejas en Google", "enlace", "google.com/search?q=recetas+de+lentejas"),
     ("Abre YouTube", "abrir", "YouTube"),
     ("Abre la app de Notas", "abrir", "Notas"),
@@ -57,3 +57,31 @@ def test_atajos_de_las_manos(frase, tipo):
 ])
 def test_sin_atajo(frase):
     assert atajos.resolver(frase) is None
+
+
+@pytest.mark.parametrize("frase, esperado", [
+    ("Pon Queen en Spotify", {"tipo": "reproducir", "consulta": "Queen", "app": "Spotify"}),
+    ("Pausa la música", {"tipo": "media", "tecla": "pausa"}),
+    ("Siguiente canción", {"tipo": "media", "tecla": "siguiente"}),
+    ("Canción anterior", {"tipo": "media", "tecla": "anterior"}),
+    ("Reanuda la música", {"tipo": "media", "tecla": "play"}),
+    ("Llévame andando a la Plaza Mayor", {"tipo": "enlace", "url": "google.navigation:q=la+Plaza+Mayor&mode=w"}),
+    ("Busca gasolineras cerca", {"tipo": "enlace", "url": "geo:0,0?q=gasolineras+cerca"}),
+    ("Abre el perfil de cristiano en Instagram",
+     {"tipo": "enlace", "url": "https://www.instagram.com/_u/cristiano", "app": "Instagram"}),
+    ("Busca recetas de lentejas en Chrome",
+     {"tipo": "enlace", "url": "https://www.google.com/search?q=recetas+de+lentejas", "app": "Chrome"}),
+    ("Abre los ajustes de batería", {"tipo": "ajustes", "pantalla": "bateria"}),
+    ("Activa el no molestar", {"tipo": "no_molestar", "estado": "on"}),
+    ("Quita el modo no molestar", {"tipo": "no_molestar", "estado": "off"}),
+    ("Pon el brillo al 70", {"tipo": "brillo", "nivel": 70}),
+    ("Pon el brillo al máximo", {"tipo": "brillo", "nivel": 100}),
+])
+def test_atajos_de_las_apps(frase, esperado):
+    assert atajos.resolver(frase)[0] == esperado
+
+
+def test_para_la_musica_no_es_la_parada_de_emergencia():
+    from jarvis.parada import es_parada
+
+    assert not es_parada("Para la música") and atajos.resolver("Para la música")[0] == {"tipo": "media", "tecla": "pausa"}

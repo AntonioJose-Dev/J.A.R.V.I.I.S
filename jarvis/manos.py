@@ -24,7 +24,8 @@ IRREVERSIBLE = re.compile(
     r"\b(enviar|envia|send|pagar|pago|pay|comprar|compra|buy|checkout|tramitar|realizar pedido|confirmar|confirm|"
     r"aceptar|accept|acepto|borrar|eliminar|delete|remove|vaciar|publicar|publish|post|compartir|share|"
     r"transferir|transferencia|bizum|suscrib\w*|subscri\w*|instalar|install|desinstalar|uninstall|restablecer|reset|"
-    r"cerrar sesion|log ?out|sign ?out|llamar|call|reservar|book|donar|apostar|retirar|depositar)\b")
+    r"cerrar sesion|log ?out|sign ?out|llamar|call|reservar|book|donar|apostar|retirar|depositar|"
+    r"seguir|follow|me gusta|like|comentar|comment|compartir ubicacion|enviar ubicacion)\b")
 # Lo que JARVIS nunca escribe (lo hace el dueño)
 SECRETO = re.compile(r"(contrase|password|passcode|\bpin\b|codigo de (verificacion|seguridad)|\bcvv\b|\bcvc\b|"
                      r"tarjeta|card[ _-]?(number|num)|credit[ _-]?card|iban|clave|\botp\b|2fa)")
@@ -81,21 +82,31 @@ class Manos:
     async def usar_movil(self, context: RunContext, accion: str = "ver", elemento: int = 0, texto: str = "",
                          app: str = "", direccion: str = "") -> str:
         """Usa el móvil del usuario como lo haría él, en CUALQUIER app: mira la pantalla y actúa paso a paso.
-        LO MÁS RÁPIDO: si hay un enlace directo, usa accion="enlace" con la dirección en `texto` y listo (un paso):
-        buscar en YouTube → https://www.youtube.com/results?search_query=musica+relajante ; ir a un sitio →
-        https://www.google.com/maps/dir/?api=1&destination=Sevilla ; buscar en Spotify → spotify:search:Queen ;
-        buscar en Google → https://www.google.com/search?q=... ; un perfil de Instagram → https://instagram.com/usuario.
-        Si no hay atajo: accion="abrir" la app o "ver", y luego UNA acción cada vez mirando la pantalla que te
-        devuelve, hasta terminar. Para cosas sencillas (alarma, volumen, linterna) es mejor movil_hacer; para
-        WhatsApp, movil_mensaje.
+        LO MÁS RÁPIDO Y FIABLE son las acciones directas (un solo paso):
+        - Música (Spotify u otra): accion="reproducir", texto="Queen" (empieza a sonar sola); pausa, play,
+          siguiente o anterior: accion="media", texto="pausa"/"play"/"siguiente"/"anterior".
+        - Maps: navegar → accion="enlace", texto="google.navigation:q=Sevilla" (añade &mode=w andando, &mode=b bici);
+          buscar cerca → texto="geo:0,0?q=gasolineras cerca".
+        - Instagram: un perfil → accion="enlace", texto="https://www.instagram.com/_u/USUARIO", app="Instagram".
+        - Chrome/Google: accion="enlace", texto="https://www.google.com/search?q=..." (o la web), app="Chrome".
+        - YouTube: accion="enlace", texto="https://www.youtube.com/results?search_query=...".
+        - Ajustes: accion="ajustes", texto="wifi" / "bluetooth" / "batería" / "sonido" / "pantalla" / "apps" /
+          "ubicación" / "almacenamiento"… ; no molestar → accion="no_molestar", texto="on"/"off";
+          brillo → accion="brillo", texto="70" (porcentaje).
+        Si no hay acción directa: "abrir" la app o "ver", y luego UNA acción cada vez mirando la pantalla. Para tocar,
+        lo más fiable es accion="tocar_texto" con el texto o la descripción del botón (p. ej. "Buscar", "Mensajes");
+        si no tiene texto, "tocar" con su número. Leer una web o pantalla para resumirla: accion="ver".
+        En Instagram, nada de seguir, me gusta, comentar, publicar ni enviar sin que lo confirme el usuario (se pide solo).
+        Para alarma, temporizador o linterna es mejor movil_hacer; para WhatsApp, movil_mensaje.
 
         Args:
-            accion: "enlace" (abrir una dirección o búsqueda directa), "ver", "abrir" (una app), "tocar",
-                "mantener" (pulsación larga), "escribir", "deslizar", "atras", "inicio", "recientes",
-                "notificaciones", "ajustes_rapidos", "cerrar" (salir de la app) o "bloquear".
+            accion: "reproducir", "media", "enlace", "ajustes", "no_molestar", "brillo", "ver", "abrir" (una app),
+                "tocar_texto", "tocar", "mantener" (pulsación larga), "escribir", "deslizar", "atras", "inicio",
+                "recientes", "notificaciones", "ajustes_rapidos", "cerrar" (salir de la app) o "bloquear".
             elemento: número del elemento de la última pantalla (para tocar, mantener o escribir).
-            texto: lo que hay que escribir (con accion="escribir").
-            app: nombre de la app (con accion="abrir"), p. ej. "YouTube" o "Notas".
+            texto: lo que hay que escribir, el texto del botón (tocar_texto), la dirección (enlace), la canción
+                (reproducir), la tecla (media), la pantalla de ajustes, "on"/"off" o el brillo.
+            app: nombre de la app (para abrir, o para que un enlace o una canción se abran en esa app).
             direccion: "abajo", "arriba", "izquierda" o "derecha" (con accion="deslizar").
         """
         from . import app_movil
@@ -125,10 +136,35 @@ class Manos:
                 return "Dime qué app abro."
             paso["app"] = app.strip()
         elif accion == "enlace":
-            url = (texto or app).strip()
+            url = texto.strip() if re.match(r"^\S+:", texto.strip()) else (app or texto).strip()
             if not re.match(r"^(https?://|spotify:|geo:|vnd\.youtube:|google\.navigation:)", url, re.I):
                 return "Ese enlace no lo abro: solo direcciones web o de YouTube, Spotify y mapas."
             paso["url"] = url
+            if app.strip() and app.strip() != url:
+                paso["app"] = app.strip()
+        elif accion == "reproducir":
+            if not texto.strip():
+                return "Dime qué canción, artista o lista pongo."
+            paso.update(consulta=texto.strip(), app=app.strip() or "Spotify")
+        elif accion == "media":
+            paso["tecla"] = (texto or "play_pausa").strip().lower()
+        elif accion == "ajustes":
+            paso["pantalla"] = texto.strip()
+        elif accion == "no_molestar":
+            paso["estado"] = "off" if re.search(r"off|quita|desactiva|apaga|no", texto.lower()) else "on"
+        elif accion == "brillo":
+            m = re.search(r"\d+", texto)
+            paso["nivel"] = int(m.group()) if m else 50
+        elif accion == "tocar_texto":
+            if not texto.strip():
+                return "Dime el texto del botón que toco."
+            if es_irreversible({"t": texto}):  # «Enviar», «Seguir», «Comprar»…: con botón de confirmación
+                pantalla = await self._paso({"tipo": "ver"})
+                el = next((e for e in pantalla.get("elementos", []) if _norm(texto) in _norm(f"{e.get('t', '')} {e.get('d', '')}")), None)
+                if el is None:
+                    return f"No veo «{texto}» en la pantalla."
+                return await self._pedir_permiso_toque("tocar", el)
+            paso["texto"] = texto.strip()
         elif accion == "deslizar":
             paso["direccion"] = direccion or "abajo"
         try:

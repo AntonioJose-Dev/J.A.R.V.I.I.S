@@ -207,6 +207,12 @@ public class Accesibilidad extends AccessibilityService {
                 case "inicio": return "🏠 Inicio";
                 case "captura": return "📸 Captura de pantalla";
                 case "panel": return "⚙ Abriendo " + a.optString("panel");
+                case "reproducir": return "🎵 Poniendo «" + a.optString("consulta") + "»";
+                case "ajustes": return "⚙ Ajustes: " + a.optString("pantalla");
+                case "tocar_texto": return "👆 Tocando «" + a.optString("texto") + "»";
+                case "media": return "⏯ Música: " + a.optString("tecla");
+                case "no_molestar": return "🔕 No molestar: " + a.optString("estado", "on");
+                case "brillo": return "☀ Brillo al " + a.optInt("nivel", 50) + " %";
                 default: return "📱 " + a.optString("tipo");
             }
         }
