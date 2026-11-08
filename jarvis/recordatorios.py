@@ -56,16 +56,28 @@ def crear(texto: str, cuando: datetime) -> int:
     return cur.lastrowid
 
 
-def vencidos(ahora: float | None = None) -> list[tuple[int, str]]:
-    """Los que ya tocan, y los marca como avisados (cada uno se avisa una sola vez)."""
+def por_avisar(ahora: float | None = None) -> list[tuple[int, str]]:
+    """Los que ya tocan (sin marcarlos: se marcan con `marcar_avisado` DESPUÉS de avisar de verdad)."""
     ahora = ahora or time.time()
     db = _db()
-    with db:
-        filas = db.execute("SELECT id, texto FROM recordatorios WHERE estado='pendiente' AND cuando <= ? ORDER BY cuando",
-                           (ahora,)).fetchall()
-        for f in filas:
-            db.execute("UPDATE recordatorios SET estado='avisado' WHERE id=?", (f[0],))
+    filas = db.execute("SELECT id, texto FROM recordatorios WHERE estado='pendiente' AND cuando <= ? ORDER BY cuando",
+                       (ahora,)).fetchall()
     db.close()
+    return filas
+
+
+def marcar_avisado(rid: int) -> None:
+    db = _db()
+    with db:
+        db.execute("UPDATE recordatorios SET estado='avisado' WHERE id=?", (rid,))
+    db.close()
+
+
+def vencidos(ahora: float | None = None) -> list[tuple[int, str]]:
+    """Los que ya tocan, y los marca como avisados (cada uno se avisa una sola vez)."""
+    filas = por_avisar(ahora)
+    for rid, _t in filas:
+        marcar_avisado(rid)
     return filas
 
 

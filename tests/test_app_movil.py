@@ -17,6 +17,7 @@ def entorno(tmp_path, monkeypatch):
     monkeypatch.setenv("JARVIS_MEMORY_PATH", str(tmp_path / "m.db"))
     monkeypatch.setenv("JARVIS_APP_TOKEN", TOKEN)
     monkeypatch.setattr(app_movil, "ESPERA_LARGA", 2)
+    monkeypatch.setattr(movil, "_esperar_ritmo_whatsapp", lambda: None)  # sin las pausas de seguridad en las pruebas
 
 
 async def _cliente():
@@ -194,6 +195,27 @@ async def test_saludos_con_su_voz_se_generan_una_vez(monkeypatch):
     await s.post("/app/saludo", json={"n": 1}, headers=h)
     assert hechos == [app_movil.SALUDOS[1]]  # la segunda vez, ya guardado
     await s.close()
+
+
+def test_limites_de_seguridad_de_whatsapp():
+    import time
+
+    ahora = time.time()
+    assert movil.ritmo_whatsapp(ahora) == 0  # nada enviado aún
+    db = app_movil._db()
+    with db:
+        db.execute("INSERT INTO app_trabajos (tipo, datos, estado, creado) VALUES ('whatsapp', '{}', 'enviado', ?)",
+                   (ahora - 5,))
+    db.close()
+    assert 14 < movil.ritmo_whatsapp(ahora) <= 15  # hace 5 s: hay que esperar ~15 s más
+    db = app_movil._db()
+    with db:
+        for i in range(movil.WHATSAPP_AL_DIA):
+            db.execute("INSERT INTO app_trabajos (tipo, datos, estado, creado) VALUES ('whatsapp_audio', '{}', 'enviado', ?)",
+                       (ahora - 3600 - i,))
+    db.close()
+    with pytest.raises(RuntimeError, match="límite de seguridad"):
+        movil.ritmo_whatsapp(ahora)
 
 
 def test_un_acuse_tardio_no_pisa_el_resultado():

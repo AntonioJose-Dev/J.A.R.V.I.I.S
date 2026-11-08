@@ -244,6 +244,37 @@ def lista_paquetes() -> list[str]:
     return _paquetes_cache
 
 
+WHATSAPP_ENTRE_ENVIOS = 20     # segundos mínimos entre dos WhatsApp (que no parezca un robot)
+WHATSAPP_AL_DIA = 30           # como mucho al día
+
+
+def ritmo_whatsapp(ahora: float | None = None) -> float:
+    """Comprueba los límites de WhatsApp (en código: JARVIS no se los puede saltar).
+    Devuelve cuántos segundos hay que esperar antes de enviar; lanza RuntimeError si se pasó del límite diario."""
+    import time as _t
+
+    from . import app_movil
+
+    ahora = ahora or _t.time()
+    db = app_movil._db()
+    filas = db.execute("SELECT creado FROM app_trabajos WHERE tipo IN ('whatsapp','whatsapp_audio') "
+                       "AND estado='enviado' AND creado > ?", (ahora - 86400,)).fetchall()
+    db.close()
+    if len(filas) >= WHATSAPP_AL_DIA:
+        raise RuntimeError(f"límite de seguridad: ya van {len(filas)} WhatsApp en 24 h (máx. {WHATSAPP_AL_DIA}), "
+                           "para que WhatsApp no lo tome por un robot. Mañana se puede seguir")
+    ultimo = max((f[0] for f in filas), default=0)
+    return max(0.0, WHATSAPP_ENTRE_ENVIOS - (ahora - ultimo))
+
+
+def _esperar_ritmo_whatsapp() -> None:
+    import random
+    import time as _t
+
+    espera = ritmo_whatsapp()
+    _t.sleep(espera + random.uniform(1.0, 3.5))  # y una pequeña pausa al azar, como una persona
+
+
 def ejecutar_accion(datos: dict) -> str:
     """Ejecuta una acción del móvil YA confirmada por el dueño."""
     from .pc import registrar
@@ -259,6 +290,7 @@ def ejecutar_accion(datos: dict) -> str:
     if datos["app"] == "whatsapp":
         from . import app_movil
 
+        _esperar_ritmo_whatsapp()  # límites de seguridad de WhatsApp (1 cada 20 s, 30 al día)
         est = app_movil.estado()
         if datos.get("audio"):
             if not est["en_linea"]:
@@ -535,6 +567,8 @@ class ControlMovil:
             nombre, numero = telefono.resolver_destino(self.memory, destino)
             datos, descripcion = preparar_mensaje(app, nombre, numero, texto, audio=bool(como_audio),
                                                   como_archivo=bool(como_archivo))
+            if nombre == numero:  # no está en tus contactos: que se vea bien claro antes de confirmar
+                descripcion = "⚠️ OJO, número que NO está en tus contactos. " + descripcion
         except (LookupError, ValueError) as e:
             return f"No puedo: {e}."
         accion_id = self.memory.create_action("movil", datos, descripcion)

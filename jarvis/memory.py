@@ -25,7 +25,10 @@ class Memory:
 
 class MemoryStore:
     def __init__(self, path: str | Path = ":memory:") -> None:
-        self._db = sqlite3.connect(str(path), check_same_thread=False)
+        self._db = sqlite3.connect(str(path), check_same_thread=False, timeout=10)
+        if str(path) != ":memory:":
+            # WAL: varias partes de JARVIS (bot, llamadas, voz, la app) leen y escriben a la vez sin bloquearse
+            self._db.execute("PRAGMA journal_mode=WAL")
         self._db.executescript(
             """
             CREATE TABLE IF NOT EXISTS memories (

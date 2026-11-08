@@ -344,9 +344,10 @@ class JarvisTelegram:
         from . import recordatorios, resumen
 
         chat = next(iter(self.permitidos), None)
+        reintento_resumen = 0.0
         while chat is not None:
             try:
-                for rid, texto in await asyncio.to_thread(recordatorios.vencidos):
+                for rid, texto in await asyncio.to_thread(recordatorios.por_avisar):
                     frase = f"Señor, le recuerdo: {texto}"
                     try:
                         try:
@@ -354,16 +355,18 @@ class JarvisTelegram:
                         except Exception:
                             log.exception("Recordatorio sin voz; lo mando por escrito")
                             await app.bot.send_message(chat, f"⏰ Recordatorio: {texto}")
+                        # Se marca DESPUÉS de avisar de verdad: si algo se cae antes, se reintenta
+                        await asyncio.to_thread(recordatorios.marcar_avisado, rid)
                         log.info("Recordatorio %s avisado", rid)
                     except Exception:
                         log.exception("No pude avisar del recordatorio %s; lo reintento", rid)
-                        await asyncio.to_thread(recordatorios.devolver, rid)
             except Exception:
                 log.exception("Fallo vigilando recordatorios")
             try:
-                if resumen.toca(self.memory):
-                    resumen.marcar_enviado(self.memory)  # antes de mandarlo: nunca dos el mismo día
+                if resumen.toca(self.memory) and time.time() - reintento_resumen > 600:
+                    reintento_resumen = time.time()
                     await self.mandar_resumen(app, chat)
+                    resumen.marcar_enviado(self.memory)  # DESPUÉS de mandarlo (si falla, se reintenta en 10 min)
             except Exception:
                 log.exception("Fallo mandando el resumen de la mañana")
             await asyncio.sleep(15)
