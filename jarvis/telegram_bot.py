@@ -276,6 +276,26 @@ class JarvisTelegram:
         pcm = b"".join(bytes(f.data) for f in frames)
         return pcm_a_ogg_opus(pcm, frames[0].sample_rate, frames[0].num_channels)
 
+    async def atajo(self, chat: int, texto: str) -> str | None:
+        """Si la orden es un atajo (abrir app, buscar en YouTube…), se hace ya en el móvil y se apunta en la
+        conversación para que JARVIS sepa lo que ha pasado. None si no hay atajo o si el atajo falla."""
+        from . import app_movil, atajos
+
+        hallado = atajos.resolver(texto)
+        if hallado is None or not app_movil.estado()["en_linea"]:
+            return None
+        accion, frase = hallado
+        try:
+            await asyncio.to_thread(app_movil.paso_movil, accion, 15)
+        except RuntimeError as e:
+            log.info("Atajo fallido (%s); lo piensa JARVIS", e)
+            return None
+        historial = self.historiales.setdefault(chat, llm.ChatContext())
+        historial.add_message(role="user", content=texto)
+        historial.add_message(role="assistant", content=frase)
+        log.info("Atajo: %s", accion.get("tipo"))
+        return frase
+
     async def voz_del_movil(self, audio_wav: bytes) -> tuple[str, str, bytes]:
         """Lo que el dueño dice al móvil (botón lateral o palmadas): mismo JARVIS, misma conversación que en Telegram."""
         chat = next(iter(self.permitidos), None)
@@ -290,7 +310,9 @@ class JarvisTelegram:
         if re.fullmatch(r"\W*(oye\W+)?(jarvis|yarvis|hola|hey|eh)\W*", entendido.lower()):
             frase = "Dígame, señor."  # solo me ha llamado: contesto al momento y la app sigue escuchando
             return entendido, frase, await self.hablar(frase)
-        respuesta = await self.pensar(chat, entendido)
+        respuesta = await self.atajo(chat, entendido)  # órdenes comunes: al momento, sin pensar
+        if respuesta is None:
+            respuesta = await self.pensar(chat, entendido)
         t2 = time.perf_counter()
         try:
             ogg = await self.hablar(respuesta)
@@ -554,7 +576,7 @@ class JarvisTelegram:
         await context.bot.send_chat_action(msg.chat_id, ChatAction.TYPING)
         try:
             if accion == "texto":
-                respuesta = await self.pensar(msg.chat_id, msg.text)
+                respuesta = await self.atajo(msg.chat_id, msg.text) or await self.pensar(msg.chat_id, msg.text)
             else:
                 archivo = await context.bot.get_file(msg.voice.file_id)
                 audio = bytes(await archivo.download_as_bytearray())
@@ -563,7 +585,7 @@ class JarvisTelegram:
                     await msg.reply_text("No le he entendido, señor. ¿Puede repetirlo?")
                     return
                 log.info("Nota de voz transcrita: %s", texto)
-                respuesta = await self.pensar(msg.chat_id, texto)
+                respuesta = await self.atajo(msg.chat_id, texto) or await self.pensar(msg.chat_id, texto)
             await self.contestar(msg, context, respuesta, me_mando_audio=accion == "voz")
         except Exception as e:
             log.exception("Error atendiendo un mensaje")
