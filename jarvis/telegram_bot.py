@@ -227,6 +227,7 @@ class JarvisTelegram:
         self.http = aiohttp.ClientSession()
         from . import app_movil
 
+        app_movil.manejador_voz = self.voz_del_movil  # botón lateral / palmadas: hablar con JARVIS desde el móvil
         try:  # la app JARVIS del móvil se conecta aquí (solo por Tailscale)
             self.servidor_app = await app_movil.arrancar_servidor()
         except OSError:
@@ -273,6 +274,22 @@ class JarvisTelegram:
         frames = [ev.frame async for ev in voz.synthesize(texto)]
         pcm = b"".join(bytes(f.data) for f in frames)
         return pcm_a_ogg_opus(pcm, frames[0].sample_rate, frames[0].num_channels)
+
+    async def voz_del_movil(self, audio_wav: bytes) -> tuple[str, str, bytes]:
+        """Lo que el dueño dice al móvil (botón lateral o palmadas): mismo JARVIS, misma conversación que en Telegram."""
+        chat = next(iter(self.permitidos), None)
+        if chat is None:
+            raise RuntimeError("falta TELEGRAM_ALLOWED_IDS")
+        entendido = await transcribir(audio_wav, "audio/wav", self.deepgram_key)
+        if not entendido:
+            return "", "No le he oído bien, señor.", await self.hablar("No le he oído bien, señor.")
+        respuesta = await self.pensar(chat, entendido)
+        try:
+            ogg = await self.hablar(respuesta)
+        except Exception:
+            log.exception("Sin voz para la respuesta del móvil")
+            ogg = b""
+        return entendido, respuesta, ogg
 
     async def contestar(self, msg, context: ContextTypes.DEFAULT_TYPE, respuesta: str, me_mando_audio: bool) -> None:
         """Siempre nota de voz (salvo /voz); si el audio falla, por escrito diciendo por qué."""

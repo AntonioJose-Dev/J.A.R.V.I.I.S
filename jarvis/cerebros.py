@@ -107,7 +107,7 @@ GRUPOS = {
     "llamadas": {"guardar_contacto", "llamar"},
     "pc": {"abrir_programa", "abrir_web", "buscar_archivo", "enviar_archivo", "multimedia", "captura_pantalla",
            "estado_pc", "bloquear_pc", "accion_pc_delicada"},
-    "movil": {"movil_info", "movil_hacer", "movil_mensaje", "guardar_contacto", "leer_whatsapp", "leer_chat_whatsapp"},
+    "movil": {"movil_info", "movil_hacer", "movil_mensaje", "guardar_contacto", "leer_whatsapp", "leer_chat_whatsapp", "usar_movil"},
     "internet": {"buscar_en_internet", "leer_pagina", "noticias", "tiempo"},
     "recordatorios": {"programar_recordatorio", "ver_recordatorios", "borrar_recordatorio", "configurar_resumen"},
 }

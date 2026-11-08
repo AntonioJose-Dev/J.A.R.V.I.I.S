@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Solo mira WhatsApp, y solo actúa cuando hay una orden firmada de JARVIS pendiente. -->
+<!-- Solo actúa con encargos de JARVIS (PC por Tailscale, con código secreto). Lo irreversible se confirma en Telegram. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/descripcion"
-    android:packageNames="com.whatsapp,com.whatsapp.w4b"
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"

@@ -156,6 +156,25 @@ async def test_un_chat_leido_no_va_al_log(caplog):
     await c.close()
 
 
+async def test_hablar_desde_el_movil(monkeypatch):
+    recibido = []
+
+    async def manejador(audio):
+        recibido.append(audio)
+        return "abre youtube", "Abriendo YouTube, señor.", b"OggS"
+    monkeypatch.setattr(app_movil, "manejador_voz", manejador)
+    app = web.Application(client_max_size=app_movil.MAX_AUDIO)
+    app.add_routes([web.post("/app/voz", app_movil._voz)])
+    c = TestClient(TestServer(app))
+    await c.start_server()
+    assert (await c.post("/app/voz", data=b"RIFF")).status == 401
+    r = await c.post("/app/voz", data=b"RIFF....WAVE", headers={"X-Jarvis-Token": TOKEN})
+    j = await r.json()
+    assert r.status == 200 and j["respuesta"] == "Abriendo YouTube, señor." and j["audio"] == "T2dnUw=="
+    assert recibido == [b"RIFF....WAVE"]
+    await c.close()
+
+
 def test_un_acuse_tardio_no_pisa_el_resultado():
     tid = app_movil.encargar("whatsapp", {"numero": "+34600123456", "texto": "hola"})
     app_movil._siguiente_trabajo(True)

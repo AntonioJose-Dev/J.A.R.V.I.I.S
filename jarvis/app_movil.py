@@ -105,28 +105,41 @@ def _guardar_resultado(trabajo_id: int, estado_: str, detalle: str) -> None:
                        (trabajo_id,))
         else:
             # Lo leído de un chat se guarda un momento (lo recoge leer_chat y lo borra); lo demás, sin texto de chats
-            guardado = detalle[:20000] if estado_ == "leido" else privado(detalle)[:500]
+            guardado = detalle[:20000] if estado_ in TRANSITORIOS else privado(detalle)[:500]
             db.execute("UPDATE app_trabajos SET estado=?, resultado=? WHERE id=? AND estado IN ('pendiente','entregado','recibido')",
                        (estado_, guardado, trabajo_id))
     db.close()
 
 
-def leer_chat(numero: str, segundos: float = 40) -> list[dict]:
-    """Pide a la app que lea los últimos mensajes del chat con `numero`. El texto NO se queda guardado:
-    se borra de la base de datos en cuanto se recoge (va solo al cerebro, para esta petición)."""
-    trabajo = encargar("leer_chat", {"numero": numero})
+TRANSITORIOS = ("leido", "pantalla")  # resultados con contenido privado: se recogen y se borran al momento
+
+
+def _encargar_y_recoger(tipo: str, datos: dict, esperado: str, segundos: float):
+    """Encarga algo cuyo resultado es privado (un chat, la pantalla): lo recoge, lo BORRA de la base de datos
+    y lo devuelve ya leído (va solo al cerebro, para esta petición)."""
+    trabajo = encargar(tipo, datos)
     estado_, detalle = esperar_resultado(trabajo, segundos)
     db = _db()
     with db:
         db.execute("UPDATE app_trabajos SET resultado=NULL WHERE id=?", (trabajo,))
     db.close()
-    if estado_ != "leido":
+    if estado_ != esperado:
         raise RuntimeError(detalle or estado_)
     try:
-        mensajes = json.loads(detalle)
+        return json.loads(detalle)
     except ValueError as e:
         raise RuntimeError("la app devolvió algo ilegible") from e
+
+
+def leer_chat(numero: str, segundos: float = 40) -> list[dict]:
+    """Los últimos mensajes del chat con `numero` (la app lo abre y los lee de la pantalla)."""
+    mensajes = _encargar_y_recoger("leer_chat", {"numero": numero}, "leido", segundos)
     return [m for m in mensajes if isinstance(m, dict) and m.get("texto")]
+
+
+def paso_movil(accion: dict, segundos: float = 25) -> dict:
+    """Una acción de las «manos» en el móvil (tocar, escribir, abrir...) y la pantalla que queda después."""
+    return _encargar_y_recoger("movil_paso", {"accion": accion}, "pantalla", segundos)
 
 
 _PRIVADO = re.compile(r"\[(message_text|single_msg_tv|conversations_row_message_view|caption|quoted_text)\|[^|\]]*")
@@ -254,8 +267,8 @@ async def _resultado(request: web.Request) -> web.Response:
         await asyncio.to_thread(_guardar_resultado, int(datos["id"]), str(datos["estado"]), str(datos.get("detalle", "")))
     except (KeyError, ValueError):
         return web.json_response({"error": "faltan datos"}, status=400)
-    if datos["estado"] == "leido":  # el contenido de un chat nunca va al log
-        log.info("La app terminó el trabajo %s: chat leído", datos["id"])
+    if datos["estado"] in TRANSITORIOS:  # el contenido de un chat o de la pantalla nunca va al log
+        log.info("La app terminó el trabajo %s: %s", datos["id"], "chat leído" if datos["estado"] == "leido" else "pantalla vista")
     else:
         log.info("La app terminó el trabajo %s: %s %s", datos["id"], datos["estado"], privado(str(datos.get("detalle", "")))[:300])
     return web.json_response({"ok": True})
@@ -284,6 +297,35 @@ async def _audio(request: web.Request) -> web.Response:
     return web.Response(body=contenido, content_type="audio/ogg")
 
 
+# --- Hablar con JARVIS desde el móvil (botón lateral, palmadas): audio → JARVIS → respuesta con su voz ----------
+
+# Lo pone el bot de Telegram al arrancar: (audio WAV) -> (lo que entendió, respuesta, audio OGG de la respuesta)
+manejador_voz = None
+MAX_AUDIO = 3_000_000
+
+
+async def _voz(request: web.Request) -> web.Response:
+    if not token_valido(request.headers.get("X-Jarvis-Token")):
+        log.warning("Audio de la app con código incorrecto desde %s", request.remote)
+        return web.json_response({"error": "código incorrecto"}, status=401)
+    guardar_estado(ultimo_contacto=time.time())
+    if manejador_voz is None:
+        return web.json_response({"error": "JARVIS aún no está listo"}, status=503)
+    audio = await request.read()
+    if not audio or len(audio) > MAX_AUDIO:
+        return web.json_response({"error": "audio vacío o demasiado largo"}, status=400)
+    try:
+        entendido, respuesta, ogg = await manejador_voz(audio)
+    except Exception as e:
+        log.exception("Fallo atendiendo la voz del móvil")
+        return web.json_response({"error": f"{type(e).__name__}"}, status=500)
+    import base64
+
+    log.info("Voz del móvil atendida (%d caracteres entendidos)", len(entendido))  # el contenido no va al log
+    return web.json_response({"entendido": entendido, "respuesta": respuesta,
+                              "audio": base64.b64encode(ogg).decode() if ogg else ""})
+
+
 async def arrancar_servidor() -> web.AppRunner | None:
     """Arranca el servidor en la IP de Tailscale. Sin Tailscale o sin código, no arranca (y lo dice)."""
     if not os.getenv("JARVIS_APP_TOKEN", "").strip():
@@ -293,9 +335,10 @@ async def arrancar_servidor() -> web.AppRunner | None:
     if not ip:
         log.warning("Servidor de la app desactivado: Tailscale no está activo en el PC")
         return None
-    app = web.Application(client_max_size=64 * 1024)
+    app = web.Application(client_max_size=MAX_AUDIO)
     app.add_routes([web.post("/app/hola", _hola), web.post("/app/espera", _espera),
-                    web.post("/app/resultado", _resultado), web.post("/app/audio", _audio)])
+                    web.post("/app/resultado", _resultado), web.post("/app/audio", _audio),
+                    web.post("/app/voz", _voz)])
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     await web.TCPSite(runner, ip, PUERTO).start()

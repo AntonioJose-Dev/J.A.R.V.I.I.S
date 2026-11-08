@@ -248,7 +248,11 @@ def ejecutar_accion(datos: dict) -> str:
     """Ejecuta una acción del móvil YA confirmada por el dueño."""
     from .pc import registrar
 
-    registrar("movil_ejecutar", **{k: v for k, v in datos.items() if k != "texto"})
+    registrar("movil_ejecutar", **{k: v for k, v in datos.items() if k not in ("texto", "esperado")})
+    if datos["accion"] == "ui":  # un toque irreversible de las «manos», ya confirmado
+        from .manos import tocar_confirmado
+
+        return tocar_confirmado(datos)
     if datos["accion"] != "mensaje":
         raise ValueError("acción desconocida")
     # Si el móvil no responde se lanza la excepción (SinMovil / ErrorAgente): quien llama lo marca como fallido

@@ -44,6 +44,7 @@ public class Accesibilidad extends AccessibilityService {
             android.accessibilityservice.AccessibilityServiceInfo info = getServiceInfo();
             info.flags |= android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
                     | android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
+            info.packageNames = null;  // las "manos" trabajan en cualquier app, no solo en WhatsApp
             setServiceInfo(info);
         } catch (Exception ignored) {
         }
@@ -141,6 +142,9 @@ public class Accesibilidad extends AccessibilityService {
                             notaDeVoz = nota;
                             empezarWhatsapp(id, d.optString("numero"), null, audio);
                         });
+                    } else if ("movil_paso".equals(tipo)) {
+                        JSONObject accion = t.getJSONObject("datos").getJSONObject("accion");
+                        principal.post(() -> pasoDeManos(id, accion));
                     } else if ("leer_chat".equals(tipo)) {
                         JSONObject d = t.getJSONObject("datos");
                         paso(id, "abriendo el chat para leerlo");
@@ -382,6 +386,28 @@ public class Accesibilidad extends AccessibilityService {
         principal.postDelayed(() -> {
             if (trabajoId == id && intento == mio && !pulsado) terminar(id, "error", diagnostico());
         }, 30_000);
+    }
+
+    // --- Las manos: una acción en cualquier app y la pantalla que queda después -----------------------------
+
+    private void pasoDeManos(long id, JSONObject accion) {
+        final String hecho;
+        try {
+            hecho = Manos.hacer(this, accion);
+        } catch (Exception e) {
+            terminar(id, "error", e.getMessage() == null ? e.toString() : e.getMessage());
+            return;
+        }
+        boolean soloVer = "ver".equals(accion.optString("tipo", "ver"));
+        principal.postDelayed(() -> {
+            try {
+                JSONObject p = Manos.ver(this);
+                p.put("hecho", hecho);
+                terminar(id, "pantalla", p.toString());
+            } catch (Exception e) {
+                terminar(id, "error", "hecho (" + hecho + "), pero no pude ver la pantalla: " + e.getMessage());
+            }
+        }, soloVer ? 50 : 1500);
     }
 
     // --- Leer un chat (para que JARVIS pueda responder con coherencia) --------------------------------------
@@ -890,7 +916,10 @@ public class Accesibilidad extends AccessibilityService {
             trabajoId = -1;
         }
         // Lo leído de un chat no se apunta en la app (privacidad): solo que se leyó
-        Conexion.anotar(this, "ultimo_envio", "leido".equals(estado) ? "leído un chat para JARVIS" : estado + ": " + detalle);
+        // Lo que se ve en pantalla o se lee de un chat no se apunta en la app (privacidad)
+        if (!"pantalla".equals(estado)) {
+            Conexion.anotar(this, "ultimo_envio", "leido".equals(estado) ? "leído un chat para JARVIS" : estado + ": " + detalle);
+        }
         new Thread(() -> {
             for (int intento = 0; intento < 4; intento++) {  // el resultado tiene que llegar al PC
                 try {

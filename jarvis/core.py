@@ -28,13 +28,14 @@ from .memory import MemoryStore
 from .prompts import system_prompt
 from .recordatorios import Recordatorios
 from .resumen import Resumen
+from .manos import Manos
 
 load_dotenv()
 log = logging.getLogger("jarvis")
 
 OWNER = os.getenv("JARVIS_OWNER_NAME", "Potro")
 TZ = ZoneInfo("Europe/Madrid")
-MAX_TOOL_STEPS = 5
+MAX_TOOL_STEPS = 15  # usar el móvil paso a paso necesita varias acciones seguidas
 NOTA_MOVIL = (
     "Ahora mismo te habla desde su MÓVIL. Si pide abrir una app o una web, poner música, subir el volumen, "
     "una alarma o mandar un mensaje sin decir dónde, hazlo en el MÓVIL (movil_hacer, movil_mensaje). "
@@ -61,7 +62,7 @@ def nota_de_hora(now: datetime | None = None) -> str:
     )
 
 
-class Jarvis(ControlPC, ControlMovil, Internet, Recordatorios, Resumen, Agent):
+class Jarvis(ControlPC, ControlMovil, Manos, Internet, Recordatorios, Resumen, Agent):
     def __init__(
         self,
         memory: MemoryStore,

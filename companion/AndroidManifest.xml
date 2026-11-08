@@ -3,18 +3,25 @@
      (orden firmada con un secreto y de hace menos de 60 segundos). Base de la futura app "Oye Jarvis". -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.jarvis.companion"
-    android:versionCode="17"
-    android:versionName="1.16">
+    android:versionCode="18"
+    android:versionName="2.0">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
     <!-- Para hablar con JARVIS en el PC por Tailscale (red privada y cifrada) -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Para escucharte cuando lo despiertas (botón lateral / palmadas) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Para pedir que Android no duerma la app (si la duerme, deja de recibir los encargos de JARVIS) -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Desde Android 11 una app solo "ve" las apps que declara aquí: sin esto, WhatsApp parece no instalado -->
     <queries>
         <package android:name="com.whatsapp" />
         <package android:name="com.whatsapp.w4b" />
+        <!-- Para poder abrir cualquier app por su nombre ("abre YouTube") -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
     </queries>
 
     <application
@@ -27,6 +34,24 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- "Oye JARVIS": asistente del móvil (mantener pulsado el botón lateral) -->
+        <activity
+            android:name=".Escuchar"
+            android:exported="true"
+            android:label="Hablar con JARVIS"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:taskAffinity="com.jarvis.companion.escuchar">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VOICE_COMMAND" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 

@@ -44,11 +44,25 @@ public class Inicio extends Activity {
                 runOnUiThread(this::pintar);
             }).start();
         });
+        Button hablar = new Button(this);
+        hablar.setText("🎙 Hablar con JARVIS");
+        hablar.setOnClickListener(v -> startActivity(new Intent(this, Escuchar.class)));
+        Button asistente = new Button(this);
+        asistente.setText("Poner JARVIS en el botón lateral (asistente)");
+        asistente.setOnClickListener(v -> {
+            try {
+                startActivity(new Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS));
+            } catch (Exception e) {
+                startActivity(new Intent(Settings.ACTION_SETTINGS));
+            }
+        });
         Button bateria = new Button(this);
         bateria.setText("Dejar que funcione en segundo plano");
         bateria.setOnClickListener(v -> pedirSinRestriccionDeBateria());
         l.addView(titulo);
         l.addView(estado);
+        l.addView(hablar);
+        l.addView(asistente);
         l.addView(activar);
         l.addView(bateria);
         l.addView(probar);
@@ -88,6 +102,7 @@ public class Inicio extends Activity {
             "Conexión con el PC: " + Conexion.prefs(this).getString("ultimo_contacto", "todavía no") + "\n" +
             "Último envío: " + Conexion.prefs(this).getString("ultimo_envio", "ninguno") + "\n" +
             "Último error: " + Conexion.prefs(this).getString("ultimo_error", "ninguno") + "\n\n" +
-            "Esta app solo pulsa «Enviar» en WhatsApp para los mensajes que tú confirmas a JARVIS.");
+            "JARVIS usa el móvil solo cuando tú se lo pides. Lo irreversible (enviar, pagar, borrar…) "
+                    + "te lo pide antes con un botón en Telegram. Nunca escribe contraseñas.");
     }
 }
