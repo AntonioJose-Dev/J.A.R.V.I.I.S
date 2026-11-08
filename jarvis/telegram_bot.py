@@ -327,12 +327,22 @@ class JarvisTelegram:
         if hallado is None or not app_movil.estado()["en_linea"]:
             return None
         accion, frase = hallado
-        try:
-            await asyncio.to_thread(app_movil.paso_movil, accion, 15)
-        except RuntimeError as e:
-            if not str(e).startswith("hecho ("):  # hecho, pero no pudo leer la pantalla después: cuenta como hecho
-                log.info("Atajo fallido (%s); lo piensa JARVIS", e)
+        if accion.get("via") == "agente":  # alarma, temporizador, linterna, volumen: por el agente del móvil
+            from . import movil
+
+            resultado = await asyncio.to_thread(movil.ControlMovil._movil_hacer, None, accion["accion"], accion["valor"])
+            if re.search(r"no |error|falta|no puedo|no encuentro", resultado.lower()):
+                log.info("Atajo del agente fallido; lo piensa JARVIS")
                 return None
+            if accion["accion"] in ("subir_volumen", "bajar_volumen"):
+                frase = resultado
+        else:
+            try:
+                await asyncio.to_thread(app_movil.paso_movil, accion, 15)
+            except RuntimeError as e:
+                if not str(e).startswith("hecho ("):  # hecho, pero no pudo leer la pantalla después: cuenta como hecho
+                    log.info("Atajo fallido (%s); lo piensa JARVIS", e)
+                    return None
         historial = self.historiales.setdefault(chat, llm.ChatContext())
         historial.add_message(role="user", content=texto)
         historial.add_message(role="assistant", content=frase)

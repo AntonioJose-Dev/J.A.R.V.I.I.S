@@ -40,11 +40,47 @@ public class Escuchar extends Activity {
 
     static void apartar() {
         Escuchar e = abierta;
-        if (e != null) e.runOnUiThread(() -> e.moveTaskToBack(true));
+        if (e == null) return;
+        e.apartada = true;
+        e.runOnUiThread(() -> e.moveTaskToBack(true));
+        Orbe.mostrar(Accesibilidad.instancia, Reactor.PENSANDO);  // queda la bolita, animada, en el borde
+    }
+
+    // --- Panel de pasos: lo que JARVIS va haciendo («📱 Abriendo YouTube ✓») -----------------------------
+    private final java.util.LinkedHashMap<Long, String> pasos = new java.util.LinkedHashMap<>();
+    private volatile boolean apartada = false;
+
+    static void anotarPaso(long id, String texto) {
+        Escuchar e = abierta;
+        if (e == null) return;
+        synchronized (e.pasos) {
+            e.pasos.put(id, texto + "  …");
+        }
+        e.pintarPasos();
+    }
+
+    static void marcarPaso(long id, boolean bien) {
+        Escuchar e = abierta;
+        if (e == null) return;
+        synchronized (e.pasos) {
+            String t = e.pasos.get(id);
+            if (t == null) return;
+            e.pasos.put(id, t.replace("  …", bien ? "  ✓" : "  ✗"));
+        }
+        e.pintarPasos();
+    }
+
+    private void pintarPasos() {
+        StringBuilder sb = new StringBuilder();
+        synchronized (pasos) {
+            java.util.List<String> lista = new java.util.ArrayList<>(pasos.values());
+            for (String s : lista.subList(Math.max(0, lista.size() - 6), lista.size())) sb.append(s).append("\n");
+        }
+        runOnUiThread(() -> listaPasos.setText(sb.toString().trim()));
     }
 
     private Reactor reactor;
-    private TextView fase, transcripcion, reloj, sistema;
+    private TextView fase, transcripcion, reloj, sistema, listaPasos;
     private static final int CIAN = Color.parseColor("#4FD8FF");
     private static final int CIAN_TENUE = Color.parseColor("#7FB8CC");
 
@@ -99,6 +135,11 @@ public class Escuchar extends Activity {
         transcripcion.setGravity(Gravity.CENTER);
         transcripcion.setPadding(m, 0, m, 0);
         centro.addView(transcripcion);
+        listaPasos = texto(12, Color.parseColor("#7CFFB2"), true);  // panel de pasos, en verde terminal
+        listaPasos.setLetterSpacing(0.04f);
+        listaPasos.setGravity(Gravity.START);
+        listaPasos.setPadding(m * 2, m / 2, m, 0);
+        centro.addView(listaPasos, new LinearLayout.LayoutParams(-1, -2));
         raiz.addView(centro, new android.widget.FrameLayout.LayoutParams(-1, -2, Gravity.CENTER));
 
         // Línea de escaneo que recorre la pantalla
@@ -135,6 +176,7 @@ public class Escuchar extends Activity {
     protected void onDestroy() {
         activo = false;
         if (abierta == this) abierta = null;
+        Orbe.quitar(Accesibilidad.instancia);  // fuera la bolita
         Palmadas.pausado = false;  // las palmadas vuelven a escuchar
         super.onDestroy();
     }
@@ -149,6 +191,7 @@ public class Escuchar extends Activity {
             reactor.estado(e);
             fase.setText(rotulo);
         });
+        if (apartada) Orbe.mostrar(Accesibilidad.instancia, e);  // la bolita también piensa / habla
     }
 
     /** La respuesta de JARVIS se escribe letra a letra, como en una consola. */
@@ -208,7 +251,18 @@ public class Escuchar extends Activity {
                 fase(Reactor.PENSANDO, "PROCESANDO…");
                 // La pantalla se queda; solo se aparta si JARVIS necesita usar el móvil (lo avisa el servicio)
                 try {
+                    // Si tarda, «Un momento, señor» (guardado en el móvil), para que no parezca que no oye
+                    final boolean[] llego = {false};
+                    new Thread(() -> {
+                        try {
+                            Thread.sleep(2500);
+                        } catch (InterruptedException ignored) {
+                        }
+                        File momento = new File(getFilesDir(), "saludo3.ogg");
+                        if (!llego[0] && momento.length() > 0) reproducirArchivo(momento);
+                    }, "jarvis-momento").start();
                     JSONObject r = enviar(wav);
+                    llego[0] = true;
                     fase(Reactor.HABLANDO, "RESPONDIENDO");
                     escribir("› " + r.optString("entendido") + "\n\n", r.optString("respuesta"));
                     String audio = r.optString("audio");
@@ -254,7 +308,7 @@ public class Escuchar extends Activity {
 
     /** Descarga los saludos con la voz de JARVIS (una vez) para ponerlos al instante, sin esperar a la red. */
     static void descargarSaludos(android.content.Context c) {
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {  // 3 saludos + «Un momento, señor»
             File f = new File(c.getFilesDir(), "saludo" + i + ".ogg");
             if (f.length() > 0) continue;
             try {

@@ -327,7 +327,7 @@ async def _voz(request: web.Request) -> web.Response:
 
 
 # Saludos al despertarlo (la app los guarda y los pone al instante, sin esperar a la red)
-SALUDOS = ["¿Sí, señor? Aquí estoy.", "Le escucho, señor.", "Dígame, señor."]
+SALUDOS = ["¿Sí, señor? Aquí estoy.", "Le escucho, señor.", "Dígame, señor.", "Un momento, señor."]
 # Lo pone el bot: (frase) -> audio OGG con la voz de JARVIS
 generar_saludo = None
 _saludos: dict[int, bytes] = {}

@@ -24,6 +24,7 @@ import java.util.List;
  */
 public class Accesibilidad extends AccessibilityService {
     static volatile boolean activa = false;
+    static volatile Accesibilidad instancia = null;  // para la bolita flotante (Orbe) y el HUD
     private static final String[] CAMPOS = {"com.whatsapp:id/entry", "com.whatsapp.w4b:id/entry"};
     private static final String[] ENVIAR = {"com.whatsapp:id/send", "com.whatsapp.w4b:id/send"};
 
@@ -39,6 +40,7 @@ public class Accesibilidad extends AccessibilityService {
     protected void onServiceConnected() {
         super.onServiceConnected();
         activa = true;
+        instancia = this;
         funcionando = true;
         try {  // ver también los diálogos de WhatsApp (son ventanas aparte)
             android.accessibilityservice.AccessibilityServiceInfo info = getServiceInfo();
@@ -129,7 +131,10 @@ public class Accesibilidad extends AccessibilityService {
                     Conexion.post(this, "/app/resultado", new JSONObject().put("id", id).put("estado", "recibido"), 10_000);
                     String tipo = t.getString("tipo");
                     boolean nuevo = !yaVisto(id);  // UNA sola comprobación (marca el encargo como visto)
-                    if (nuevo) Escuchar.apartar();  // JARVIS va a usar el móvil: la pantalla de «Hablar» se aparta
+                    if (nuevo) {
+                        Escuchar.apartar();  // JARVIS va a usar el móvil: el HUD se aparta y queda la bolita
+                        Escuchar.anotarPaso(id, describir(tipo, t.optJSONObject("datos")));
+                    }
                     if (!nuevo) {
                         paso(id, "encargo repetido: ya lo tenía, no lo hago dos veces");
                     } else if ("whatsapp".equals(tipo)) {
@@ -180,6 +185,35 @@ public class Accesibilidad extends AccessibilityService {
                 dormir(Math.min(30_000, 2_000L * fallos));
             }
         }
+    }
+
+    /** Lo que se ve en el panel de pasos del HUD: «📱 Abriendo YouTube», «💬 Enviando WhatsApp»… */
+    static String describir(String tipo, JSONObject d) {
+        JSONObject a = d == null ? null : d.optJSONObject("accion");
+        if ("movil_paso".equals(tipo) && a != null) {
+            switch (a.optString("tipo")) {
+                case "abrir": return "📱 Abriendo " + a.optString("app");
+                case "enlace": {
+                    android.net.Uri u = android.net.Uri.parse(a.optString("url"));
+                    String q = u.getQueryParameter("search_query");
+                    if (q == null) q = u.getQueryParameter("q");
+                    return q != null ? "🔎 Buscando «" + q + "»" : "🔗 Abriendo " + (u.getHost() != null ? u.getHost() : u.getScheme());
+                }
+                case "tocar": return "👆 Tocando";
+                case "escribir": return "⌨ Escribiendo";
+                case "deslizar": return "↕ Desplazando";
+                case "ver": return "👁 Mirando la pantalla";
+                case "atras": return "↩ Atrás";
+                case "inicio": return "🏠 Inicio";
+                case "captura": return "📸 Captura de pantalla";
+                case "panel": return "⚙ Abriendo " + a.optString("panel");
+                default: return "📱 " + a.optString("tipo");
+            }
+        }
+        if ("whatsapp".equals(tipo)) return "💬 Enviando WhatsApp";
+        if ("whatsapp_audio".equals(tipo)) return "🎙 Enviando nota de voz";
+        if ("leer_chat".equals(tipo)) return "📖 Leyendo el chat";
+        return "⚙ " + tipo;
     }
 
     // Los últimos encargos ya hechos: un encargo reentregado nunca se manda dos veces
@@ -926,6 +960,7 @@ public class Accesibilidad extends AccessibilityService {
     }
 
     private void terminar(long id, String estado, String detalle) {
+        Escuchar.marcarPaso(id, !"error".equals(estado) && !"cancelado".equals(estado));  // ✓ o ✗ en el HUD
         if (trabajoId == id) {
             textoEsperado = null;
             modoAudio = false;

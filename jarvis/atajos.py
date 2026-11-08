@@ -27,9 +27,61 @@ def _limpio(original: str, normalizado_trozo: str) -> str:
     return o[i:i + len(normalizado_trozo)].strip() if i >= 0 else normalizado_trozo
 
 
+_NUMEROS = {"una": 1, "un": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6, "siete": 7, "ocho": 8,
+            "nueve": 9, "diez": 10, "once": 11, "doce": 12, "quince": 15, "veinte": 20, "treinta": 30,
+            "cuarenta": 40, "cuarenta y cinco": 45, "media": 30}
+
+
+def _num(s: str) -> int | None:
+    s = (s or "").strip()
+    return int(s) if s.isdigit() else _NUMEROS.get(s)
+
+
+def hora_de(h: str, m: str | None, parte: str | None) -> str | None:
+    """'7', 'media', 'tarde' → '19:30'."""
+    hh = _num(h)
+    if hh is None or hh > 23:
+        return None
+    mm = 0 if not m else (30 if m == "media" else 15 if m == "cuarto" else _num(m))
+    if mm is None or mm > 59:
+        return None
+    if parte in ("tarde", "noche") and hh < 12:
+        hh += 12
+    return f"{hh:02d}:{mm:02d}"
+
+
 def resolver(texto: str) -> tuple[dict, str] | None:
-    """(acción de las «manos», frase para decir) o None si no hay atajo seguro."""
+    """(acción, frase para decir) o None si no hay atajo seguro.
+    La acción es de las «manos» ({"tipo": ...}) o del agente del móvil ({"via": "agente", "accion": ..., "valor": ...})."""
     t = _norm(texto)
+    m = re.match(_COMIENZO + r"(?:pon(?:me)?|programa|ponme)\s+(?:una\s+)?alarma\s+(?:a|para)\s+las?\s+(\w+)"
+                 r"(?:\s*(?::|y|\.)\s*(\w+))?(?:\s+de\s+la\s+(manana|tarde|noche))?" + _MOVIL + r"$", t)
+    if m:
+        hora = hora_de(m.group(1), m.group(2), m.group(3))
+        if hora:
+            return {"via": "agente", "accion": "alarma", "valor": hora}, f"Alarma puesta a las {hora}, señor."
+    m = re.match(_COMIENZO + r"(?:pon(?:me)?)\s+(?:un\s+)?temporizador\s+de\s+([\w ]+?)\s+(minutos?|horas?)" + _MOVIL + r"$", t)
+    if m and _num(m.group(1)):
+        minutos = _num(m.group(1)) * (60 if m.group(2).startswith("hora") else 1)
+        return ({"via": "agente", "accion": "temporizador", "valor": str(minutos)},
+                f"Temporizador de {minutos} minutos en marcha, señor.")
+    m = re.match(_COMIENZO + r"(enciende|activa|apaga|desactiva)\s+(?:la\s+)?linterna" + _MOVIL + r"$", t)
+    if m:
+        on = m.group(1) in ("enciende", "activa")
+        return {"via": "agente", "accion": "linterna", "valor": "on" if on else "off"}, \
+            f"Linterna {'encendida' if on else 'apagada'}."
+    m = re.match(_COMIENZO + r"(sube|baja)(?:me)?\s+(?:el\s+)?volumen" + _MOVIL + r"$", t)
+    if m:
+        accion = "subir_volumen" if m.group(1) == "sube" else "bajar_volumen"
+        return {"via": "agente", "accion": accion, "valor": ""}, "Hecho, señor."
+    m = re.match(_COMIENZO + r"(?:haz(?:me)?|saca(?:me)?)\s+(?:una\s+)?captura(?:\s+de\s+pantalla)?" + _MOVIL + r"$", t)
+    if m:
+        return {"tipo": "captura"}, "Captura hecha, señor."
+    m = re.match(_COMIENZO + r"(?:abre|activa|desactiva|enciende|apaga|pon|quita)\s+(?:el\s+|la\s+)?(wifi|wi fi|bluetooth|"
+                 r"datos|datos moviles|brillo)" + _MOVIL + r"$", t)
+    if m:
+        cual = {"wi fi": "wifi", "datos moviles": "datos"}.get(m.group(1), m.group(1))
+        return {"tipo": "panel", "panel": cual}, f"Le dejo abierto el {cual}, señor: tóquelo usted o dígame qué hago."
     m = (re.match(_COMIENZO + r"(?:abre youtube y\s+)?(?:busca(?:me)?|pon(?:me)?|reproduce)\s+(.+?)\s+en youtube" + _MOVIL + r"$", t)
          or re.match(_COMIENZO + r"abre youtube" + _MOVIL + r"\s+y\s+(?:busca(?:me)?|pon(?:me)?)\s+(.+)$", t))
     if m:

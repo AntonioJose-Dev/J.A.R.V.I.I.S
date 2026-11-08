@@ -21,6 +21,32 @@ def test_atajos(frase, tipo, contiene):
     assert accion["tipo"] == tipo and contiene in (accion.get("url") or accion.get("app")) and decir
 
 
+@pytest.mark.parametrize("frase, accion, valor", [
+    ("Pon una alarma a las 7", "alarma", "07:00"),
+    ("Ponme una alarma a las siete y media", "alarma", "07:30"),
+    ("Pon una alarma para las 8:15 de la tarde", "alarma", "20:15"),
+    ("Pon un temporizador de 10 minutos", "temporizador", "10"),
+    ("Ponme un temporizador de cinco minutos", "temporizador", "5"),
+    ("Pon un temporizador de una hora", "temporizador", "60"),
+    ("Enciende la linterna", "linterna", "on"),
+    ("Apaga la linterna", "linterna", "off"),
+    ("Sube el volumen", "subir_volumen", ""),
+    ("Baja el volumen del móvil", "bajar_volumen", ""),
+])
+def test_atajos_del_agente(frase, accion, valor):
+    a, decir = atajos.resolver(frase)
+    assert a == {"via": "agente", "accion": accion, "valor": valor} and decir
+
+
+@pytest.mark.parametrize("frase, tipo", [
+    ("Haz una captura de pantalla", "captura"), ("Hazme una captura", "captura"),
+    ("Activa el wifi", "panel"), ("Abre el bluetooth", "panel"), ("Sube el brillo", None),
+])
+def test_atajos_de_las_manos(frase, tipo):
+    r = atajos.resolver(frase)
+    assert (r[0]["tipo"] if r else None) == tipo
+
+
 @pytest.mark.parametrize("frase", [
     "Abre YouTube y dime qué vídeo es el más visto",      # no es una búsqueda simple: lo piensa JARVIS
     "Abre la puerta del garaje y enciende la luz",

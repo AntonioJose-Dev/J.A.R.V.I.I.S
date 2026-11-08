@@ -143,6 +143,18 @@ final class Manos {
             case "ajustes_rapidos": return global(s, AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS, "ajustes rápidos");
             case "bloquear": return global(s, AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN, "móvil bloqueado");
             case "abrir": return abrir(s, a.optString("app"));
+            case "captura": return global(s, AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT, "captura de pantalla");
+            case "panel": {
+                // Wi-Fi, Bluetooth, datos o brillo: se abre su panel (Android no deja cambiarlos sin que lo veas)
+                String p = a.optString("panel");
+                String accion = p.equals("wifi") ? "android.settings.panel.action.WIFI"
+                        : p.equals("datos") ? "android.settings.panel.action.INTERNET_CONNECTIVITY"
+                        : p.equals("bluetooth") ? android.provider.Settings.ACTION_BLUETOOTH_SETTINGS
+                        : p.equals("brillo") ? android.provider.Settings.ACTION_DISPLAY_SETTINGS
+                        : android.provider.Settings.ACTION_SETTINGS;
+                s.startActivity(new Intent(accion).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                return "abierto el panel de " + p;
+            }
             case "enlace": {
                 // Atajo: abre directamente una búsqueda de YouTube, un mapa, Spotify… (mucho más rápido que tocar)
                 android.net.Uri u = android.net.Uri.parse(a.optString("url"));
