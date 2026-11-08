@@ -279,7 +279,7 @@ class JarvisTelegram:
 
     async def vigilar_recordatorios(self, app: Application) -> None:
         """Cada 15 s mira si toca algún recordatorio y lo manda como nota de voz (o por escrito si el audio falla)."""
-        from . import recordatorios
+        from . import recordatorios, resumen
 
         chat = next(iter(self.permitidos), None)
         while chat is not None:
@@ -298,7 +298,27 @@ class JarvisTelegram:
                         await asyncio.to_thread(recordatorios.devolver, rid)
             except Exception:
                 log.exception("Fallo vigilando recordatorios")
+            try:
+                if resumen.toca(self.memory):
+                    resumen.marcar_enviado(self.memory)  # antes de mandarlo: nunca dos el mismo día
+                    await self.mandar_resumen(app, chat)
+            except Exception:
+                log.exception("Fallo mandando el resumen de la mañana")
             await asyncio.sleep(15)
+
+    async def mandar_resumen(self, app: Application, chat: int) -> None:
+        """El resumen de la mañana: nota de voz con la voz de JARVIS y el mismo texto debajo."""
+        from . import resumen
+        from .core import OWNER
+
+        base = await asyncio.to_thread(resumen.texto_base, await asyncio.to_thread(resumen.datos, self.memory))
+        texto = await resumen.redactar(self.cerebro, base, OWNER)
+        try:
+            await app.bot.send_voice(chat, voice=await self.hablar(texto), caption="☀️ Resumen de la mañana")
+        except Exception:
+            log.exception("Resumen sin voz; lo mando por escrito")
+        await app.bot.send_message(chat, f"☀️ {texto}")
+        log.info("Resumen de la mañana enviado")
 
     async def boton_llamada(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         q, user = update.callback_query, update.effective_user

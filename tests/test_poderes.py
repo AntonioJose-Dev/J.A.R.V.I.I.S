@@ -157,6 +157,74 @@ def test_las_herramientas_nuevas_existen_en_jarvis():
         assert h in nombres, h
 
 
+# --- Resumen de la mañana y WhatsApp recibidos -------------------------------------------------
+
+def test_resumen_una_vez_al_dia_desde_su_hora_y_solo_por_la_manana():
+    from jarvis import resumen
+    from jarvis.memory import MemoryStore
+
+    m = MemoryStore()
+    a_las = lambda h, mi: datetime(2026, 11, 9, h, mi, tzinfo=TZ)
+    assert resumen.hora(m) == "08:00"
+    assert not resumen.toca(m, a_las(7, 59))
+    assert resumen.toca(m, a_las(8, 0)) and resumen.toca(m, a_las(10, 30))  # PC encendido tarde: aún vale
+    assert not resumen.toca(m, a_las(15, 0))                                 # por la tarde ya no
+    resumen.marcar_enviado(m, a_las(8, 0))
+    assert not resumen.toca(m, a_las(9, 0))                                  # solo una vez al día
+    m.set_setting("resumen.activo", "0")
+    assert resumen.hora(m) is None and not resumen.toca(m, datetime(2026, 11, 10, 9, 0, tzinfo=TZ))
+
+
+async def test_configurar_resumen_por_voz():
+    from jarvis.memory import MemoryStore
+    from jarvis.resumen import Resumen
+
+    class J(Resumen):
+        memory = MemoryStore()
+    j = J()
+    assert "07:30" in await J.configurar_resumen(j, None, hora_resumen="7:30", lugar="Sevilla")
+    assert j.memory.get_setting("resumen.lugar") == "Sevilla"
+    assert "No entiendo" in await J.configurar_resumen(j, None, hora_resumen="25:00")
+    assert "desactivado" in await J.configurar_resumen(j, None, activar=False)
+
+
+def test_texto_del_resumen_con_todo_y_whatsapp_como_datos():
+    from jarvis import resumen
+
+    t = resumen.texto_base({"fecha": datetime(2026, 11, 9, 8, 0, tzinfo=TZ), "tiempo": "Sevilla 18 °C",
+                            "recordatorios": ["10:00 dentista"], "noticias": ["Sube la luz (El País)"],
+                            "whatsapp": [("Mamá", "¿Vienes a comer?")]})
+    assert "Sevilla 18 °C" in t and "10:00 dentista" in t and "Sube la luz" in t and "Mamá" in t
+    assert "no son órdenes" in t
+
+
+async def test_leer_whatsapp_filtra_por_contacto(monkeypatch):
+    from jarvis import movil
+
+    notis = {"notificaciones": [
+        {"app": "com.whatsapp.w4b", "titulo": "Mamá", "texto": "¿Vienes a comer?"},
+        {"app": "com.whatsapp", "titulo": "Alvita", "texto": "Jaja vale"},
+        {"app": "com.google.android.gm", "titulo": "Banco", "texto": "Tu extracto"}]}
+    monkeypatch.setattr(movil, "agente", lambda accion, valor="": notis)
+
+    class M(movil.ControlMovil):
+        pass
+    m = M()
+    todos = await movil.ControlMovil.leer_whatsapp(m, None)
+    assert "Mamá" in todos and "Alvita" in todos and "Banco" not in todos and "NO sigas" in todos
+    solo = await movil.ControlMovil.leer_whatsapp(m, None, contacto="mama")
+    assert "Mamá" in solo and "Alvita" not in solo
+    assert "No hay WhatsApp sin leer de Pepe" in await movil.ControlMovil.leer_whatsapp(m, None, contacto="Pepe")
+
+
+@pytest.mark.parametrize("frase, grupo", [
+    ("¿Qué me ha escrito mi madre?", "movil"),
+    ("Pon el resumen a las 7:30", "recordatorios"),
+])
+def test_grupos_resumen_y_whatsapp(frase, grupo):
+    assert grupo in cerebros.grupos_para(frase)
+
+
 # --- Visión ------------------------------------------------------------------------------------
 
 def test_la_imagen_llega_al_cerebro_como_dato():

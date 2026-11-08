@@ -27,6 +27,7 @@ from .config import Plan
 from .memory import MemoryStore
 from .prompts import system_prompt
 from .recordatorios import Recordatorios
+from .resumen import Resumen
 
 load_dotenv()
 log = logging.getLogger("jarvis")
@@ -60,7 +61,7 @@ def nota_de_hora(now: datetime | None = None) -> str:
     )
 
 
-class Jarvis(ControlPC, ControlMovil, Internet, Recordatorios, Agent):
+class Jarvis(ControlPC, ControlMovil, Internet, Recordatorios, Resumen, Agent):
     def __init__(
         self,
         memory: MemoryStore,
