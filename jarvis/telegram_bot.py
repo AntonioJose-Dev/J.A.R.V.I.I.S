@@ -228,6 +228,7 @@ class JarvisTelegram:
         from . import app_movil
 
         app_movil.manejador_voz = self.voz_del_movil  # botón lateral / palmadas: hablar con JARVIS desde el móvil
+        app_movil.generar_saludo = self.hablar
         try:  # la app JARVIS del móvil se conecta aquí (solo por Tailscale)
             self.servidor_app = await app_movil.arrancar_servidor()
         except OSError:
@@ -280,16 +281,24 @@ class JarvisTelegram:
         chat = next(iter(self.permitidos), None)
         if chat is None:
             raise RuntimeError("falta TELEGRAM_ALLOWED_IDS")
+        t0 = time.perf_counter()
         entendido = await transcribir(audio_wav, "audio/wav", self.deepgram_key)
+        t1 = time.perf_counter()
         if not entendido:
             return "", "No le he oído bien, señor.", await self.hablar("No le he oído bien, señor.")
         log.info("Voz desde el móvil: %s", entendido)  # (igual que las notas de voz de Telegram: es una orden suya)
+        if re.fullmatch(r"\W*(oye\W+)?(jarvis|yarvis|hola|hey|eh)\W*", entendido.lower()):
+            frase = "Dígame, señor."  # solo me ha llamado: contesto al momento y la app sigue escuchando
+            return entendido, frase, await self.hablar(frase)
         respuesta = await self.pensar(chat, entendido)
+        t2 = time.perf_counter()
         try:
             ogg = await self.hablar(respuesta)
         except Exception:
             log.exception("Sin voz para la respuesta del móvil")
             ogg = b""
+        log.info("Tiempos voz del móvil: entender %.1f s, pensar/actuar %.1f s, voz %.1f s",
+                 t1 - t0, t2 - t1, time.perf_counter() - t2)
         return entendido, respuesta, ogg
 
     async def contestar(self, msg, context: ContextTypes.DEFAULT_TYPE, respuesta: str, me_mando_audio: bool) -> None:

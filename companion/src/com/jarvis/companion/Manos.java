@@ -143,6 +143,17 @@ final class Manos {
             case "ajustes_rapidos": return global(s, AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS, "ajustes rápidos");
             case "bloquear": return global(s, AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN, "móvil bloqueado");
             case "abrir": return abrir(s, a.optString("app"));
+            case "enlace": {
+                // Atajo: abre directamente una búsqueda de YouTube, un mapa, Spotify… (mucho más rápido que tocar)
+                android.net.Uri u = android.net.Uri.parse(a.optString("url"));
+                String esquema = u.getScheme() == null ? "" : u.getScheme().toLowerCase();
+                if (!java.util.Arrays.asList("https", "http", "spotify", "geo", "vnd.youtube", "google.navigation").contains(esquema)) {
+                    throw new Exception("ese tipo de enlace no lo abro (" + esquema + ")");
+                }
+                Intent i = new Intent(Intent.ACTION_VIEW, u).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                s.startActivity(i);
+                return "abierto " + u.getHost();
+            }
             case "cerrar": {
                 // Android no deja a otra app "matar" una app; se sale de ella (atrás y a inicio)
                 s.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK);

@@ -326,6 +326,25 @@ async def _voz(request: web.Request) -> web.Response:
                               "audio": base64.b64encode(ogg).decode() if ogg else ""})
 
 
+# Saludos al despertarlo (la app los guarda y los pone al instante, sin esperar a la red)
+SALUDOS = ["¿Sí, señor? Aquí estoy.", "Le escucho, señor.", "Dígame, señor."]
+# Lo pone el bot: (frase) -> audio OGG con la voz de JARVIS
+generar_saludo = None
+_saludos: dict[int, bytes] = {}
+
+
+async def _saludo_voz(request: web.Request) -> web.Response:
+    datos = await _leer(request)
+    if datos is None:
+        return web.json_response({"error": "código incorrecto"}, status=401)
+    n = int(datos.get("n", 0)) % len(SALUDOS)
+    if n not in _saludos and generar_saludo is not None:
+        _saludos[n] = await generar_saludo(SALUDOS[n])
+    if not _saludos.get(n):
+        return web.json_response({"error": "sin saludo"}, status=503)
+    return web.Response(body=_saludos[n], content_type="audio/ogg")
+
+
 async def arrancar_servidor() -> web.AppRunner | None:
     """Arranca el servidor en la IP de Tailscale. Sin Tailscale o sin código, no arranca (y lo dice)."""
     if not os.getenv("JARVIS_APP_TOKEN", "").strip():
@@ -338,7 +357,7 @@ async def arrancar_servidor() -> web.AppRunner | None:
     app = web.Application(client_max_size=MAX_AUDIO)
     app.add_routes([web.post("/app/hola", _hola), web.post("/app/espera", _espera),
                     web.post("/app/resultado", _resultado), web.post("/app/audio", _audio),
-                    web.post("/app/voz", _voz)])
+                    web.post("/app/voz", _voz), web.post("/app/saludo", _saludo_voz)])
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     await web.TCPSite(runner, ip, PUERTO).start()

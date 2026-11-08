@@ -86,6 +86,7 @@ public class Accesibilidad extends AccessibilityService {
             Conexion.error(this, fallo);
         }
         if (desconexion != null) Conexion.error(this, desconexion);
+        Escuchar.descargarSaludos(this);  // los saludos con su voz, listos para las palmadas o el botón
         try {
             Conexion.post(this, "/app/hola", new JSONObject().put("evento", "servicio escuchando a JARVIS"), 8000);
         } catch (Exception ignored) {
@@ -416,7 +417,7 @@ public class Accesibilidad extends AccessibilityService {
             } catch (Exception e) {
                 terminar(id, "error", "hecho (" + hecho + "), pero no pude ver la pantalla: " + e.getMessage());
             }
-        }, soloVer ? 50 : 1500);
+        }, soloVer ? 50 : 900);
     }
 
     // --- Leer un chat (para que JARVIS pueda responder con coherencia) --------------------------------------

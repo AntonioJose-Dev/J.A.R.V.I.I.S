@@ -81,14 +81,18 @@ class Manos:
     async def usar_movil(self, context: RunContext, accion: str = "ver", elemento: int = 0, texto: str = "",
                          app: str = "", direccion: str = "") -> str:
         """Usa el móvil del usuario como lo haría él, en CUALQUIER app: mira la pantalla y actúa paso a paso.
-        Empieza con accion="ver" (o "abrir" una app); te devuelve los elementos numerados de la pantalla. Luego haz
-        UNA acción cada vez y vuelve a mirar el resultado, hasta terminar lo que pidió. Para cosas sencillas
-        (alarma, volumen, linterna) es mejor movil_hacer; para WhatsApp, movil_mensaje.
+        LO MÁS RÁPIDO: si hay un enlace directo, usa accion="enlace" con la dirección en `texto` y listo (un paso):
+        buscar en YouTube → https://www.youtube.com/results?search_query=musica+relajante ; ir a un sitio →
+        https://www.google.com/maps/dir/?api=1&destination=Sevilla ; buscar en Spotify → spotify:search:Queen ;
+        buscar en Google → https://www.google.com/search?q=... ; un perfil de Instagram → https://instagram.com/usuario.
+        Si no hay atajo: accion="abrir" la app o "ver", y luego UNA acción cada vez mirando la pantalla que te
+        devuelve, hasta terminar. Para cosas sencillas (alarma, volumen, linterna) es mejor movil_hacer; para
+        WhatsApp, movil_mensaje.
 
         Args:
-            accion: "ver", "abrir" (una app), "tocar", "mantener" (pulsación larga), "escribir", "deslizar",
-                "atras", "inicio", "recientes", "notificaciones", "ajustes_rapidos", "cerrar" (salir de la app)
-                o "bloquear".
+            accion: "enlace" (abrir una dirección o búsqueda directa), "ver", "abrir" (una app), "tocar",
+                "mantener" (pulsación larga), "escribir", "deslizar", "atras", "inicio", "recientes",
+                "notificaciones", "ajustes_rapidos", "cerrar" (salir de la app) o "bloquear".
             elemento: número del elemento de la última pantalla (para tocar, mantener o escribir).
             texto: lo que hay que escribir (con accion="escribir").
             app: nombre de la app (con accion="abrir"), p. ej. "YouTube" o "Notas".
@@ -120,6 +124,11 @@ class Manos:
             if not app.strip():
                 return "Dime qué app abro."
             paso["app"] = app.strip()
+        elif accion == "enlace":
+            url = (texto or app).strip()
+            if not re.match(r"^(https?://|spotify:|geo:|vnd\.youtube:|google\.navigation:)", url, re.I):
+                return "Ese enlace no lo abro: solo direcciones web o de YouTube, Spotify y mapas."
+            paso["url"] = url
         elif accion == "deslizar":
             paso["direccion"] = direccion or "abajo"
         try:

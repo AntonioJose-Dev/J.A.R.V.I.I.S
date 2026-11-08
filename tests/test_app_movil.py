@@ -175,6 +175,27 @@ async def test_hablar_desde_el_movil(monkeypatch):
     await c.close()
 
 
+async def test_saludos_con_su_voz_se_generan_una_vez(monkeypatch):
+    hechos = []
+
+    async def generar(frase):
+        hechos.append(frase)
+        return b"OggS" + frase.encode()
+    monkeypatch.setattr(app_movil, "generar_saludo", generar)
+    monkeypatch.setattr(app_movil, "_saludos", {})
+    app = web.Application()
+    app.add_routes([web.post("/app/saludo", app_movil._saludo_voz)])
+    s = TestClient(TestServer(app))
+    await s.start_server()
+    h = {"X-Jarvis-Token": TOKEN}
+    assert (await s.post("/app/saludo", json={"n": 0})).status == 401
+    r = await s.post("/app/saludo", json={"n": 1}, headers=h)
+    assert r.status == 200 and (await r.read()) == b"OggS" + app_movil.SALUDOS[1].encode()
+    await s.post("/app/saludo", json={"n": 1}, headers=h)
+    assert hechos == [app_movil.SALUDOS[1]]  # la segunda vez, ya guardado
+    await s.close()
+
+
 def test_un_acuse_tardio_no_pisa_el_resultado():
     tid = app_movil.encargar("whatsapp", {"numero": "+34600123456", "texto": "hola"})
     app_movil._siguiente_trabajo(True)

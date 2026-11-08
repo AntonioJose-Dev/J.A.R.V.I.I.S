@@ -107,6 +107,15 @@ def test_al_confirmar_solo_se_toca_si_el_boton_sigue_ahi(monkeypatch):
     assert pasos == [{"tipo": "ver"}]
 
 
+async def test_atajo_con_enlace_directo(movil_falso):
+    j = J()
+    await J.usar_movil(j, None, accion="enlace", texto="https://www.youtube.com/results?search_query=musica+relajante")
+    assert movil_falso == [{"tipo": "enlace", "url": "https://www.youtube.com/results?search_query=musica+relajante"}]
+    for malo in ["tel:+34600123456", "sms:+346", "intent://algo", "file:///sdcard/x", "javascript:alert(1)"]:
+        assert "no lo abro" in await J.usar_movil(j, None, accion="enlace", texto=malo)
+    assert len(movil_falso) == 1
+
+
 async def test_sin_app_conectada(monkeypatch):
     monkeypatch.setattr(app_movil, "estado", lambda: {"en_linea": False})
     assert "no está conectada" in await J.usar_movil(J(), None, accion="ver")

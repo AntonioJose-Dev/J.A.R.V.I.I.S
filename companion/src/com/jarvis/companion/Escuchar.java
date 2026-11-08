@@ -97,32 +97,75 @@ public class Escuchar extends Activity {
                 Thread.sleep(Palmadas.corriendo ? 400 : 0);  // que el detector de palmadas suelte el micrófono
             } catch (InterruptedException ignored) {
             }
-            try {
-                new ToneGenerator(AudioManager.STREAM_MUSIC, 80).startTone(ToneGenerator.TONE_PROP_BEEP, 150);
-                Thread.sleep(350);  // que el pitido acabe ANTES de medir el ruido (si no, todo parecía silencio)
-            } catch (Exception ignored) {
+            saludar();  // "¿Sí, señor? Aquí estoy." con su voz, al instante (guardado en el móvil)
+            // Conversación: tras cada respuesta sigue escuchando; si no dices nada en unos segundos, se cierra
+            for (int vuelta = 0; vuelta < 8 && activo; vuelta++) {
+                poner(vuelta == 0 ? "Le escucho, señor…" : "¿Algo más, señor?");
+                if (vuelta > 0) pitido();
+                byte[] wav = grabar();
+                if (wav == null) {
+                    poner(vuelta == 0 ? "No le he oído. Vuelva a intentarlo." : "A su servicio, señor.");
+                    break;
+                }
+                poner("Pensando…");
+                // La pantalla se queda; solo se aparta si JARVIS necesita usar el móvil (lo avisa el servicio)
+                try {
+                    JSONObject r = enviar(wav);
+                    poner("Usted: " + r.optString("entendido") + "\n\nJARVIS: " + r.optString("respuesta"));
+                    String audio = r.optString("audio");
+                    if (!audio.isEmpty()) reproducir(Base64.decode(audio, Base64.DEFAULT));
+                } catch (Exception e) {
+                    poner("No he podido hablar con JARVIS: " + e.getMessage());
+                    Conexion.error(this, "botón JARVIS: " + e.getMessage());
+                    break;
+                }
+                // Si la pantalla se apartó (JARVIS usó el móvil), solo se puede seguir escuchando con las palmadas activas
+                if (!hasWindowFocus() && !Palmadas.corriendo) break;
             }
-            poner("Le escucho, señor…");
-            byte[] wav = grabar();
             Palmadas.pausado = false;
-            if (wav == null) {
-                poner("No le he oído. Vuelva a intentarlo.");
-                cerrarEn(1500);
+            cerrarEn(1200);
+        }, "jarvis-escuchar").start();
+    }
+
+    private void pitido() {
+        try {
+            new ToneGenerator(AudioManager.STREAM_MUSIC, 70).startTone(ToneGenerator.TONE_PROP_BEEP, 120);
+            Thread.sleep(300);  // que acabe ANTES de medir el ruido (si no, todo parecía silencio)
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** Pone uno de los saludos guardados (van rotando). Si aún no están, pitido y se descargan para la próxima. */
+    private void saludar() {
+        int n = Conexion.prefs(this).getInt("saludo_n", 0);
+        Conexion.prefs(this).edit().putInt("saludo_n", (n + 1) % 3).apply();
+        File f = new File(getFilesDir(), "saludo" + n + ".ogg");
+        if (f.length() > 0) {
+            reproducirArchivo(f);
+            try {
+                Thread.sleep(150);
+            } catch (InterruptedException ignored) {
+            }
+        } else {
+            pitido();
+            new Thread(() -> descargarSaludos(this), "jarvis-saludos").start();
+        }
+    }
+
+    /** Descarga los saludos con la voz de JARVIS (una vez) para ponerlos al instante, sin esperar a la red. */
+    static void descargarSaludos(android.content.Context c) {
+        for (int i = 0; i < 3; i++) {
+            File f = new File(c.getFilesDir(), "saludo" + i + ".ogg");
+            if (f.length() > 0) continue;
+            try {
+                byte[] ogg = Conexion.descargar(c, "/app/saludo", new JSONObject().put("n", i), 30_000);
+                try (FileOutputStream fo = new FileOutputStream(f)) {
+                    fo.write(ogg);
+                }
+            } catch (Exception e) {
                 return;
             }
-            poner("Pensando…");
-            // La pantalla se queda; solo se aparta si JARVIS necesita usar el móvil (lo avisa el servicio)
-            try {
-                JSONObject r = enviar(wav);
-                poner("Usted: " + r.optString("entendido") + "\n\nJARVIS: " + r.optString("respuesta"));
-                String audio = r.optString("audio");
-                if (!audio.isEmpty()) reproducir(Base64.decode(audio, Base64.DEFAULT));
-            } catch (Exception e) {
-                poner("No he podido hablar con JARVIS: " + e.getMessage());
-                Conexion.error(this, "botón JARVIS: " + e.getMessage());
-            }
-            cerrarEn(800);
-        }, "jarvis-escuchar").start();
+        }
     }
 
     private void cerrarEn(long ms) {
@@ -246,6 +289,15 @@ public class Escuchar extends Activity {
             try (FileOutputStream fo = new FileOutputStream(f)) {
                 fo.write(ogg);
             }
+            reproducirArchivo(f);
+        } catch (Exception e) {
+            poner("No pude reproducir la respuesta: " + e.getMessage());
+        }
+    }
+
+    /** Reproduce y espera a que termine. */
+    private void reproducirArchivo(File f) {
+        try {
             MediaPlayer mp = new MediaPlayer();
             mp.setDataSource(f.getAbsolutePath());
             mp.prepare();
