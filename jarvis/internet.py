@@ -70,6 +70,16 @@ def comprobar_url(url: str) -> str:
 HONESTO = "JARVIS-asistente-personal/1.0 (uso privado; python-httpx)"
 
 
+def ip_conectada(respuesta) -> str | None:
+    """La IP del servidor al que se conectó de verdad esta respuesta (None si no se puede saber)."""
+    try:
+        flujo = respuesta.extensions.get("network_stream")
+        direccion = flujo.get_extra_info("server_addr") if flujo is not None else None
+        return direccion[0] if direccion else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def descargar(url: str) -> tuple[str, str]:
     """(url final, html). Algunas webs (p. ej. Wikipedia) rechazan navegadores 'falsos': se reintenta identificándose."""
     try:
@@ -85,6 +95,10 @@ def _descargar(url: str, agente: str) -> tuple[str, str]:
         for _ in range(5):
             comprobar_url(url)
             with c.stream("GET", url) as r:
+                # Contra el «DNS rebinding»: se mira la IP a la que de verdad se ha conectado (no solo la de antes)
+                conectado = ip_conectada(r)
+                if conectado is not None and not ip_publica(conectado):
+                    raise NoPermitida("esa web ha intentado llevarme a una red privada")
                 if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
                     url = urljoin(url, r.headers["location"])
                     continue

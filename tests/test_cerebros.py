@@ -99,4 +99,4 @@ def test_todas_las_herramientas_estan_en_algun_grupo():
 
 
 def test_un_mensaje_simple_lleva_pocas_herramientas():
-    assert len(cerebros.herramientas_de(cerebros.grupos_para("¿qué tal estás?"))) == 4
+    assert len(cerebros.herramientas_de(cerebros.grupos_para("¿qué tal estás?"))) == 5  # + estado_jarvis

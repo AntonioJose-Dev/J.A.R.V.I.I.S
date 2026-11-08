@@ -77,6 +77,8 @@ def tipo_de_mensaje(texto: str | None, tiene_voz: bool) -> str | None:
         return "alternar_voz"
     if comando in ("/hablar", "/llamame"):
         return "hablar"
+    if comando == "/estado":
+        return "estado"
     return "texto"
 
 
@@ -245,6 +247,7 @@ class JarvisTelegram:
         await app.bot.set_my_commands([
             BotCommand("hablar", "Hablar con JARVIS en directo"),
             BotCommand("voz", "Contestar también con nota de voz"),
+            BotCommand("estado", "Cómo está JARVIS (cerebro, voz, móvil, memoria)"),
             BotCommand("olvida", "Empezar la conversación de cero"),
             BotCommand("id", "Ver tu ID de Telegram"),
         ])
@@ -594,6 +597,11 @@ class JarvisTelegram:
                 "(El enlace vale para una conversación; para otra, vuelve a escribir /hablar.)",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🎙 Hablar con JARVIS", web_app=WebAppInfo(url))]]),
             )
+            return
+        if accion == "estado":  # solo el dueño (decidir ya ha filtrado): no enseña claves, solo si funciona o no
+            from . import doctor
+
+            await msg.reply_text("🩺 JARVIS · estado\n" + await asyncio.to_thread(doctor.texto))
             return
         if accion == "alternar_voz":
             texto_ahora = not self.modo_texto(msg.chat_id)

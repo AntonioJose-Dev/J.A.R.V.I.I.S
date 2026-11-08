@@ -103,7 +103,7 @@ def modelo_de(prov: Proveedor) -> str:
 # --- Herramientas por grupos -------------------------------------------------------------------
 
 GRUPOS = {
-    "basicas": {"recordar", "buscar_recuerdos", "leer_nota", "fecha_y_hora"},
+    "basicas": {"recordar", "buscar_recuerdos", "leer_nota", "fecha_y_hora", "estado_jarvis"},
     "llamadas": {"guardar_contacto", "llamar"},
     "pc": {"abrir_programa", "abrir_web", "buscar_archivo", "enviar_archivo", "multimedia", "captura_pantalla",
            "estado_pc", "bloquear_pc", "accion_pc_delicada"},

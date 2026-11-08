@@ -104,4 +104,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == "doctor":  # python -m jarvis doctor: revisión de todo
+        os.chdir(RAIZ)
+        from .doctor import main as doctor
+
+        doctor()
+    else:
+        main()

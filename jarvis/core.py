@@ -181,6 +181,14 @@ class Jarvis(ControlPC, ControlMovil, Manos, Internet, Recordatorios, Resumen, A
         return texto or f"No hay ninguna nota llamada «{nombre}»."
 
     @function_tool
+    async def estado_jarvis(self, context: RunContext) -> str:
+        """Cómo está JARVIS por dentro: cerebro y voz que usa, si el móvil está conectado, memoria, límites y fallos.
+        Úsalo si pregunta "¿cómo estás?", "¿qué te pasa?", "¿por qué tardas?" o "¿estás bien conectado?"."""
+        from . import doctor
+
+        return await asyncio.to_thread(doctor.texto)
+
+    @function_tool
     async def fecha_y_hora(self, context: RunContext) -> str:
         """Devuelve la fecha y hora actuales en España."""
         return fecha_hora_texto()

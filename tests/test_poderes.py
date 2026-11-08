@@ -46,6 +46,17 @@ def test_una_web_no_puede_redirigir_a_la_red_de_casa(monkeypatch):
         internet.descargar("https://publica.com/")
 
 
+def test_dns_rebinding_bloqueado(monkeypatch):
+    """La comprobación pasa (IP pública), pero al conectar resulta ser la red de casa: se corta sin leer nada."""
+    monkeypatch.setattr(internet.socket, "getaddrinfo", lambda h, p: [(None, None, None, "", ("93.184.216.34", p))])
+    monkeypatch.setattr(internet, "ip_conectada", lambda r: "192.168.1.1")
+    real = httpx.Client
+    monkeypatch.setattr(internet.httpx, "Client", lambda **k: real(
+        transport=httpx.MockTransport(lambda req: httpx.Response(200, text="<html>router</html>")), **k))
+    with pytest.raises(internet.NoPermitida, match="red privada"):
+        internet.descargar("https://trampa.com/")
+
+
 def test_resultados_marcados_como_datos_y_con_fuente():
     t = internet.formatear([{"titulo": "Bitcoin hoy", "url": "https://x.com/b", "resumen": "Sube un 2 %",
                              "fuente": "Expansión", "fecha": "2026-11-08"}])
