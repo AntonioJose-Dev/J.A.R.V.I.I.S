@@ -329,6 +329,9 @@ class ControlMovil:
         Args:
             que: "estado" (batería, modelo), "notificaciones" (las que tiene ahora) o "ubicacion" (dónde está).
         """
+        return await asyncio.to_thread(self._movil_info, que)  # en otro hilo: no congela a JARVIS mientras espera
+
+    def _movil_info(self, que: str) -> str:
         from .pc import registrar
 
         registrar("movil_info", que=que)
@@ -373,6 +376,9 @@ class ControlMovil:
                 o captura (manda la pantalla del móvil por Telegram).
             valor: el dato que necesita la acción.
         """
+        return await asyncio.to_thread(self._movil_hacer, accion, valor)  # en otro hilo: no congela a JARVIS
+
+    def _movil_hacer(self, accion: str, valor: str = "") -> str:
         import base64
 
         from . import telegram_api

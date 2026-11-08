@@ -116,6 +116,15 @@ async def test_atajo_con_enlace_directo(movil_falso):
     assert len(movil_falso) == 1
 
 
+def test_el_pc_tampoco_escribe_secretos():
+    from jarvis import pc
+
+    for secreto in ["483920", "4111 1111 1111 1111", "contraseña: hunter2", "PIN=1234"]:
+        with pytest.raises(ValueError, match="no lo escribo"):
+            pc.preparar_accion("escribir", secreto)
+    assert pc.preparar_accion("escribir", "Hola, llego a las 8")[0]["objetivo"] == "Hola, llego a las 8"
+
+
 async def test_sin_app_conectada(monkeypatch):
     monkeypatch.setattr(app_movil, "estado", lambda: {"en_linea": False})
     assert "no está conectada" in await J.usar_movil(J(), None, accion="ver")
