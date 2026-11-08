@@ -13,6 +13,8 @@ dependencies = [
     "psutil>=5.9",
     "mss>=9",
     "send2trash>=1.8",
+    "ddgs>=9",
+    "trafilatura>=2",
     "tzdata; sys_platform == 'win32'",
 ]
 

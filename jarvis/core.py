@@ -20,11 +20,13 @@ from livekit.agents import Agent, RunContext, function_tool, llm, tts
 from livekit.plugins import anthropic, deepgram, elevenlabs, openai
 
 from . import cerebros, telefono
+from .internet import Internet
 from .movil import ControlMovil
 from .pc import ControlPC
 from .config import Plan
 from .memory import MemoryStore
 from .prompts import system_prompt
+from .recordatorios import Recordatorios
 
 load_dotenv()
 log = logging.getLogger("jarvis")
@@ -58,7 +60,7 @@ def nota_de_hora(now: datetime | None = None) -> str:
     )
 
 
-class Jarvis(ControlPC, ControlMovil, Agent):
+class Jarvis(ControlPC, ControlMovil, Internet, Recordatorios, Agent):
     def __init__(
         self,
         memory: MemoryStore,

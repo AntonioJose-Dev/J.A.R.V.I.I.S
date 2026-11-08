@@ -108,6 +108,8 @@ GRUPOS = {
     "pc": {"abrir_programa", "abrir_web", "buscar_archivo", "enviar_archivo", "multimedia", "captura_pantalla",
            "estado_pc", "bloquear_pc", "accion_pc_delicada"},
     "movil": {"movil_info", "movil_hacer", "movil_mensaje", "guardar_contacto"},
+    "internet": {"buscar_en_internet", "leer_pagina", "noticias", "tiempo"},
+    "recordatorios": {"programar_recordatorio", "ver_recordatorios", "borrar_recordatorio"},
 }
 PALABRAS = {
     "llamadas": r"llam|telefon|contacto|agenda|numero",
@@ -116,6 +118,12 @@ PALABRAS = {
     "pc": r"\bpc\b|ordenador|portatil|abre|abrir|programa|\bweb\b|pagina|busca|archivo|fichero|documento|pdf|carpeta"
           r"|volumen|musica|cancion|pausa|siguiente|pantalla|captura|bloquea|apaga|reinicia|suspende|cierra|escribe"
           r"|comando|google|youtube|navegador|descarga|manda(me)?l|envia(me)?l|bateria|memoria|disco",
+    "internet": r"internet|busca|buscar|google|noticia|actualidad|tiempo hace|que tiempo|el tiempo|clima|llover|llueve"
+                r"|temperatura|precio|cuesta|cuanto vale|cotiza|bitcoin|bolsa|resultado|partido|gano|quien gan|marcador"
+                r"|quien es|que es |que son|como se|donde esta (el|la)|horario|abre hoy|cierra hoy|pelicula|estreno"
+                r"|receta|ultim|hoy|ahora mismo|actual|web|pagina|http|www\.|\.com|investiga|averigua|informa(me|cion)",
+    "recordatorios": r"recuerda(me|le)|recordatorio|avisa(me)?|no se me olvide|no me dejes olvidar|alarma de"
+                     r"|dentro de \d+|en \d+ (minuto|hora)|a las \d",
 }
 
 

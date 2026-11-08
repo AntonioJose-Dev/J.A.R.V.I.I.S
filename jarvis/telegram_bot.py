@@ -220,6 +220,7 @@ class JarvisTelegram:
         except OSError:
             log.exception("No pude arrancar el servidor de la app JARVIS")
             self.servidor_app = None
+        self.tarea_recordatorios = asyncio.create_task(self.vigilar_recordatorios(app))
         me = await app.bot.get_me()
         log.info("Bot @%s listo (%s; %s). Usuarios permitidos: %d",
                  me.username, self.plan.describir(), describir_voz(self.plan), len(self.permitidos))
@@ -233,6 +234,8 @@ class JarvisTelegram:
         ])
 
     async def cerrar(self, app: Application) -> None:
+        if getattr(self, "tarea_recordatorios", None):
+            self.tarea_recordatorios.cancel()
         if getattr(self, "servidor_app", None):
             await self.servidor_app.cleanup()
         if self.http:
@@ -258,6 +261,44 @@ class JarvisTelegram:
         frames = [ev.frame async for ev in voz.synthesize(texto)]
         pcm = b"".join(bytes(f.data) for f in frames)
         return pcm_a_ogg_opus(pcm, frames[0].sample_rate, frames[0].num_channels)
+
+    async def contestar(self, msg, context: ContextTypes.DEFAULT_TYPE, respuesta: str, me_mando_audio: bool) -> None:
+        """Siempre nota de voz (salvo /voz); si el audio falla, por escrito diciendo por qué."""
+        con_texto, con_voz = que_enviar(me_mando_audio, self.modo_texto(msg.chat_id))
+        if con_texto:
+            await msg.reply_text(respuesta)
+        if con_voz:
+            await context.bot.send_chat_action(msg.chat_id, ChatAction.RECORD_VOICE)
+            try:
+                await msg.reply_voice(voice=await self.hablar(respuesta))
+            except Exception as e:  # ni la voz principal ni la de reserva: entonces por escrito, diciendo por qué
+                log.exception("No pude generar la nota de voz")
+                if not con_texto:
+                    await msg.reply_text(f"{respuesta}\n\n(Te lo escribo porque no he podido generar el audio: "
+                                         f"{type(e).__name__}.)")
+
+    async def vigilar_recordatorios(self, app: Application) -> None:
+        """Cada 15 s mira si toca algún recordatorio y lo manda como nota de voz (o por escrito si el audio falla)."""
+        from . import recordatorios
+
+        chat = next(iter(self.permitidos), None)
+        while chat is not None:
+            try:
+                for rid, texto in await asyncio.to_thread(recordatorios.vencidos):
+                    frase = f"Señor, le recuerdo: {texto}"
+                    try:
+                        try:
+                            await app.bot.send_voice(chat, voice=await self.hablar(frase), caption=f"⏰ {texto}")
+                        except Exception:
+                            log.exception("Recordatorio sin voz; lo mando por escrito")
+                            await app.bot.send_message(chat, f"⏰ Recordatorio: {texto}")
+                        log.info("Recordatorio %s avisado", rid)
+                    except Exception:
+                        log.exception("No pude avisar del recordatorio %s; lo reintento", rid)
+                        await asyncio.to_thread(recordatorios.devolver, rid)
+            except Exception:
+                log.exception("Fallo vigilando recordatorios")
+            await asyncio.sleep(15)
 
     async def boton_llamada(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         q, user = update.callback_query, update.effective_user
@@ -357,7 +398,17 @@ class JarvisTelegram:
             ruta = carpeta / f"{time.strftime('%Y%m%d-%H%M%S')}-{msg.message_id}.jpg"
             await (await imagen.get_file()).download_to_drive(ruta)
             log.info("Imagen recibida y guardada en %s", ruta)
-            await msg.reply_text("📷 Imagen recibida y guardada, señor.")
+            await context.bot.send_chat_action(msg.chat_id, ChatAction.TYPING)
+            from . import vision
+
+            try:
+                descripcion = await vision.describir(ruta.read_bytes(), msg.caption or "")
+                respuesta = await self.pensar(msg.chat_id, vision.mensaje_para_jarvis(descripcion, msg.caption or ""))
+            except Exception as e:
+                log.exception("No pude entender la imagen")
+                await msg.reply_text(f"📷 Imagen guardada, pero no he podido verla: {e}")
+                return
+            await self.contestar(msg, context, respuesta, me_mando_audio=False)
             return
         tipo = tipo_de_mensaje(msg.text, msg.voice is not None)
         accion = decidir(user.id if user else None, self.permitidos, tipo)
@@ -414,19 +465,7 @@ class JarvisTelegram:
                     return
                 log.info("Nota de voz transcrita: %s", texto)
                 respuesta = await self.pensar(msg.chat_id, texto)
-
-            con_texto, con_voz = que_enviar(accion == "voz", self.modo_texto(msg.chat_id))
-            if con_texto:
-                await msg.reply_text(respuesta)
-            if con_voz:
-                await context.bot.send_chat_action(msg.chat_id, ChatAction.RECORD_VOICE)
-                try:
-                    await msg.reply_voice(voice=await self.hablar(respuesta))
-                except Exception as e:  # ni la voz principal ni la de reserva: entonces por escrito, diciendo por qué
-                    log.exception("No pude generar la nota de voz")
-                    if not con_texto:
-                        await msg.reply_text(f"{respuesta}\n\n(Te lo escribo porque no he podido generar el audio: "
-                                             f"{type(e).__name__}.)")
+            await self.contestar(msg, context, respuesta, me_mando_audio=accion == "voz")
         except Exception as e:
             log.exception("Error atendiendo un mensaje")
             if "429" in str(e) or "rate limit" in str(e).lower():
