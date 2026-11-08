@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PUERTO = int(os.environ.get("JARVIS_MOVIL_PUERTO", "8765"))
 RUTA_TOKEN = os.path.expanduser("~/.jarvis_token")
-VERSION = "14"
+VERSION = "15"
 
 
 def ejecutar(cmd: list[str], timeout: float = 30) -> str:
@@ -383,6 +383,27 @@ def sistema(_v: str) -> dict:
     return salida
 
 
+def limpiar_cache(_v: str) -> dict:
+    """Libera espacio borrando SOLO cachés de Termux (paquetes ya instalados y descargas de pip). No toca nada tuyo."""
+    import shutil
+
+    prefijo = os.environ.get("PREFIX", "/data/data/com.termux/files/usr")
+    casa = os.path.expanduser("~")
+    antes = os.statvfs("/data")
+    for ruta in (os.path.join(prefijo, "var", "cache", "apt", "archives"), os.path.join(casa, ".cache", "pip"),
+                 os.path.join(prefijo, "tmp")):
+        if os.path.isdir(ruta):
+            for nombre in os.listdir(ruta):
+                p = os.path.join(ruta, nombre)
+                try:
+                    shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
+                except OSError:
+                    pass
+    despues = os.statvfs("/data")
+    return {"liberado_mb": max(0, (despues.f_bavail - antes.f_bavail) * despues.f_frsize // (1024 * 1024)),
+            "libre_mb": despues.f_bavail * despues.f_frsize // (1024 * 1024)}
+
+
 def diagnostico(_v: str) -> dict:
     """Prueba los comandos de Termux:API que más fallan y devuelve solo códigos y errores (no el contenido)."""
     salida = {"termux": {"origen": os.environ.get("TERMUX_APK_RELEASE", "?"),
@@ -423,7 +444,7 @@ def diagnostico(_v: str) -> dict:
 
 
 ACCIONES = {
-    "cambiar_token": cambiar_token, "actualizar": actualizar, "diagnostico": diagnostico, "sistema": sistema,
+    "cambiar_token": cambiar_token, "actualizar": actualizar, "diagnostico": diagnostico, "sistema": sistema, "limpiar_cache": limpiar_cache,
     "companion_olvidar": companion_olvidar, "companion_estado": companion_estado,
     "estado": estado, "ubicacion": ubicacion, "notificaciones": notificaciones, "linterna": linterna,
     "volumen": volumen, "sonar": sonar, "hablar": hablar, "vibrar": vibrar, "alarma": alarma,
