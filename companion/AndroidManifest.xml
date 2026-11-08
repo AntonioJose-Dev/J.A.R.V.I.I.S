@@ -3,14 +3,18 @@
      (orden firmada con un secreto y de hace menos de 60 segundos). Base de la futura app "Oye Jarvis". -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.jarvis.companion"
-    android:versionCode="18"
-    android:versionName="2.0">
+    android:versionCode="19"
+    android:versionName="2.1">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
     <!-- Para hablar con JARVIS en el PC por Tailscale (red privada y cifrada) -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Para escucharte cuando lo despiertas (botón lateral / palmadas) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Palmadas: escuchar en segundo plano (con aviso fijo, como exige Android) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Para pedir que Android no duerma la app (si la duerme, deja de recibir los encargos de JARVIS) -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Desde Android 11 una app solo "ve" las apps que declara aquí: sin esto, WhatsApp parece no instalado -->
@@ -54,6 +58,11 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".Palmadas"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
         <!-- Sin receptores de mensajes: la app solo recibe trabajo de JARVIS en el PC, con su código secreto -->
 

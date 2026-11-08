@@ -73,6 +73,7 @@ public class Escuchar extends Activity {
     @Override
     protected void onDestroy() {
         activo = false;
+        Palmadas.pausado = false;  // las palmadas vuelven a escuchar
         super.onDestroy();
     }
 
@@ -81,13 +82,19 @@ public class Escuchar extends Activity {
     }
 
     private void empezar() {
+        Palmadas.pausado = true;  // el micrófono es para escucharte a ti
         new Thread(() -> {
+            try {
+                Thread.sleep(Palmadas.corriendo ? 400 : 0);  // que el detector de palmadas suelte el micrófono
+            } catch (InterruptedException ignored) {
+            }
             try {
                 new ToneGenerator(AudioManager.STREAM_MUSIC, 80).startTone(ToneGenerator.TONE_PROP_BEEP, 150);
             } catch (Exception ignored) {
             }
             poner("Le escucho, señor…");
             byte[] wav = grabar();
+            Palmadas.pausado = false;
             if (wav == null) {
                 poner("No le he oído. Vuelva a intentarlo.");
                 cerrarEn(1500);

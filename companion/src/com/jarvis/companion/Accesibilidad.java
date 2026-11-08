@@ -57,6 +57,14 @@ public class Accesibilidad extends AccessibilityService {
                     + sw.toString().substring(0, Math.min(1500, sw.toString().length()))).commit();
             if (anterior != null) anterior.uncaughtException(hilo, t);
         });
+        if (Palmadas.activadas(this) && !Palmadas.corriendo) {  // tras reiniciar el móvil, vuelven las palmadas
+            try {
+                startForegroundService(new Intent(this, Palmadas.class));
+            } catch (Exception e) {
+                Conexion.prefs(this).edit().putString("fallo_pendiente",
+                        "no pude reactivar las palmadas al encender (ábreme y vuelve a activarlas): " + e.getMessage()).apply();
+            }
+        }
         new Thread(() -> {
             // El bucle de conexión nunca debe morir: si falla, se apunta y vuelve a empezar
             while (funcionando) {

@@ -56,6 +56,32 @@ public class Inicio extends Activity {
                 startActivity(new Intent(Settings.ACTION_SETTINGS));
             }
         });
+        Button palmadas = new Button(this);
+        palmadas.setText(Palmadas.activadas(this) ? "👏 Palmadas: ACTIVADAS (pulsa para quitar)" : "👏 Activar las dos palmadas");
+        palmadas.setOnClickListener(v -> {
+            boolean si = !Palmadas.activadas(this);
+            if (si) {
+                java.util.List<String> faltan = new java.util.ArrayList<>();
+                if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                    faltan.add(android.Manifest.permission.RECORD_AUDIO);
+                if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                        != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                    faltan.add(android.Manifest.permission.POST_NOTIFICATIONS);
+                if (!faltan.isEmpty()) {
+                    requestPermissions(faltan.toArray(new String[0]), 2);
+                    return;  // al dar los permisos, se vuelve a pulsar
+                }
+            }
+            Palmadas.activar(this, si);
+            palmadas.setText(si ? "👏 Palmadas: ACTIVADAS (pulsa para quitar)" : "👏 Activar las dos palmadas");
+        });
+        Button sensibilidad = new Button(this);
+        sensibilidad.setText("Sensibilidad de las palmadas: " + Palmadas.sensibilidad(this) + " de 5");
+        sensibilidad.setOnClickListener(v -> {
+            int s = Palmadas.sensibilidad(this) % 5 + 1;
+            Conexion.prefs(this).edit().putInt("palmadas_sensibilidad", s).apply();
+            sensibilidad.setText("Sensibilidad de las palmadas: " + s + " de 5");
+        });
         Button bateria = new Button(this);
         bateria.setText("Dejar que funcione en segundo plano");
         bateria.setOnClickListener(v -> pedirSinRestriccionDeBateria());
@@ -63,6 +89,8 @@ public class Inicio extends Activity {
         l.addView(estado);
         l.addView(hablar);
         l.addView(asistente);
+        l.addView(palmadas);
+        l.addView(sensibilidad);
         l.addView(activar);
         l.addView(bateria);
         l.addView(probar);
