@@ -620,6 +620,12 @@ class JarvisTelegram:
             return
         tipo = tipo_de_mensaje(msg.text, msg.voice is not None)
         accion = decidir(user.id if user else None, self.permitidos, tipo)
+        if accion == "texto" and re.search(r"\d+\.\d+\.\d+\.\d+:\d{4,5}", msg.text or "") and re.search(r"\b\d{6}\b", msg.text or ""):
+            # Datos de vinculación de la depuración inalámbrica: se quedan en el PC (no van a ningún cerebro ni al log)
+            Path("logs").mkdir(exist_ok=True)
+            Path("logs/adb_vinculo.txt").write_text(msg.text, encoding="utf-8")
+            await msg.reply_text("🔐 Datos de vinculación recibidos. Se quedan solo en tu PC; ahora conecto con el móvil.")
+            return
         if accion == "texto" and msg.forward_origin is None:
             from .parada import es_parada
 

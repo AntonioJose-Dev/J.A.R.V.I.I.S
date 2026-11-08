@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PUERTO = int(os.environ.get("JARVIS_MOVIL_PUERTO", "8765"))
 RUTA_TOKEN = os.path.expanduser("~/.jarvis_token")
-VERSION = "13"
+VERSION = "14"
 
 
 def ejecutar(cmd: list[str], timeout: float = 30) -> str:
@@ -365,6 +365,24 @@ def actualizar(_v: str) -> dict:
     return {"ok": True, "reiniciando": True}
 
 
+def sistema(_v: str) -> dict:
+    """Espacio libre y versión de Android (para saber por qué no se instala una actualización). Sin datos personales."""
+    salida = {}
+    for nombre, cmd in (("android", ["getprop", "ro.build.version.release"]), ("sdk", ["getprop", "ro.build.version.sdk"]),
+                        ("modelo", ["getprop", "ro.product.model"]), ("parche", ["getprop", "ro.build.version.security_patch"])):
+        try:
+            salida[nombre] = subprocess.run(cmd, capture_output=True, text=True, timeout=10).stdout.strip()
+        except Exception as e:  # noqa: BLE001
+            salida[nombre] = f"error {type(e).__name__}"
+    for nombre, ruta in (("libre_datos_mb", "/data"), ("libre_interno_mb", "/storage/emulated/0")):
+        try:
+            st = os.statvfs(ruta)
+            salida[nombre] = st.f_bavail * st.f_frsize // (1024 * 1024)
+        except Exception as e:  # noqa: BLE001
+            salida[nombre] = f"error {type(e).__name__}"
+    return salida
+
+
 def diagnostico(_v: str) -> dict:
     """Prueba los comandos de Termux:API que más fallan y devuelve solo códigos y errores (no el contenido)."""
     salida = {"termux": {"origen": os.environ.get("TERMUX_APK_RELEASE", "?"),
@@ -405,7 +423,7 @@ def diagnostico(_v: str) -> dict:
 
 
 ACCIONES = {
-    "cambiar_token": cambiar_token, "actualizar": actualizar, "diagnostico": diagnostico,
+    "cambiar_token": cambiar_token, "actualizar": actualizar, "diagnostico": diagnostico, "sistema": sistema,
     "companion_olvidar": companion_olvidar, "companion_estado": companion_estado,
     "estado": estado, "ubicacion": ubicacion, "notificaciones": notificaciones, "linterna": linterna,
     "volumen": volumen, "sonar": sonar, "hablar": hablar, "vibrar": vibrar, "alarma": alarma,
