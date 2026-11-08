@@ -136,7 +136,11 @@ public class Accesibilidad extends AccessibilityService {
                             continue;
                         }
                         paso(id, "audio listo y comprobado; abriendo WhatsApp");
-                        principal.post(() -> empezarWhatsapp(id, d.optString("numero"), null, audio));
+                        final boolean nota = "nota".equals(d.optString("modo", "archivo"));
+                        principal.post(() -> {
+                            notaDeVoz = nota;
+                            empezarWhatsapp(id, d.optString("numero"), null, audio);
+                        });
                     } else {
                         terminar(id, "error", "esta versión de la app no sabe hacer «" + tipo + "»");
                     }
@@ -302,10 +306,24 @@ public class Accesibilidad extends AccessibilityService {
         caduca = System.currentTimeMillis() + 30_000;
         pulsado = false;
         vioWhatsapp = false;
+        audioActual = audio;
+        numeroActual = numero;
+        if (audio != null && notaDeVoz) {
+            try {  // se prepara ya el reproductor para saber cuánto dura (y cuánto hay que mantener el micrófono)
+                prepararReproductor(audio);
+                caduca = System.currentTimeMillis() + 30_000 + reproductor.getDuration();
+            } catch (Exception e) {
+                paso(id, "no pude preparar la nota de voz (" + e.getMessage() + "); lo mando como Audio");
+                notaDeVoz = false;
+            }
+        }
         try {
             Intent i;
             String digitos = numero.replaceAll("[^0-9]", "");
-            if (audio != null) {
+            if (audio != null && notaDeVoz) {
+                // Nota de voz: se abre el chat vacío; luego se graba manteniendo pulsado el micrófono
+                i = new Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/" + digitos));
+            } else if (audio != null) {
                 // El audio se comparte directamente al chat de esa persona ("jid" = número@s.whatsapp.net)
                 i = new Intent(Intent.ACTION_SEND);
                 i.setType("audio/ogg");
@@ -336,24 +354,168 @@ public class Accesibilidad extends AccessibilityService {
             terminar(id, "error", "no pude abrir WhatsApp: " + e.getMessage());
             return;
         }
+        final int mio = ++intento;  // si se reintenta de otra forma, los relojes del intento anterior no cuentan
         // No solo se espera a los avisos de WhatsApp: se revisa la pantalla cada 0,7 s por si acaso
         final Runnable revisarCada = new Runnable() {
             @Override
             public void run() {
-                if (trabajoId != id || pulsado || System.currentTimeMillis() > caduca) return;
+                if (trabajoId != id || intento != mio || pulsado || System.currentTimeMillis() > caduca) return;
                 revisar();
                 principal.postDelayed(this, 700);
             }
         };
         principal.postDelayed(revisarCada, 700);
-        // A los 12 s sin éxito, se le cuenta al PC qué hay en pantalla (para poder arreglarlo si algo cambia)
+        // A los 12 s sin éxito, se le cuenta al PC qué hay en pantalla; si era una nota de voz, se manda como Audio
         principal.postDelayed(() -> {
-            if (trabajoId == id && !pulsado) paso(id, "aún no veo el botón; en pantalla: " + volcado());
+            if (trabajoId != id || intento != mio || pulsado) return;
+            if (modoAudio && notaDeVoz) {
+                pasarAArchivo(id, "no encontré el micrófono de WhatsApp. En pantalla: " + volcado());
+            } else {
+                paso(id, "aún no veo el botón; en pantalla: " + volcado());
+            }
         }, 12_000);
         // Si en 30 s no se ha podido pulsar Enviar, se dice el motivo (nunca se da por enviado)
         principal.postDelayed(() -> {
-            if (trabajoId == id && !pulsado) terminar(id, "error", diagnostico());
+            if (trabajoId == id && intento == mio && !pulsado) terminar(id, "error", diagnostico());
         }, 30_000);
+    }
+
+    // --- Nota de voz de verdad: mantener pulsado el micrófono de WhatsApp mientras suena el audio -------------
+
+    private volatile boolean notaDeVoz = false;
+    private volatile int intento = 0;
+    private volatile Uri audioActual = null;
+    private volatile String numeroActual = null;
+    private android.media.MediaPlayer reproductor;
+    private static final String[] MICRO = {"com.whatsapp:id/voice_note_btn", "com.whatsapp.w4b:id/voice_note_btn"};
+
+    private void prepararReproductor(Uri u) throws Exception {
+        soltarReproductor();
+        reproductor = new android.media.MediaPlayer();
+        // Por el canal de accesibilidad: así Android no lo silencia cuando WhatsApp empieza a grabar
+        reproductor.setAudioAttributes(new android.media.AudioAttributes.Builder()
+                .setUsage(android.media.AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build());
+        reproductor.setDataSource(this, u);
+        reproductor.prepare();
+    }
+
+    private void soltarReproductor() {
+        if (reproductor != null) {
+            try {
+                reproductor.release();
+            } catch (Exception ignored) {
+            }
+            reproductor = null;
+        }
+    }
+
+    /** Si la nota de voz no se puede grabar, se manda el mismo audio como «Audio» (y se dice por qué). */
+    private void pasarAArchivo(long id, String motivo) {
+        paso(id, "nota de voz imposible: " + motivo + " → lo mando como Audio");
+        soltarReproductor();
+        notaDeVoz = false;
+        textoEsperado = null;
+        trabajoId = -1;
+        empezarWhatsapp(id, numeroActual, null, audioActual);
+    }
+
+    private AccessibilityNodeInfo microfono() {
+        for (AccessibilityNodeInfo r : raicesWhatsapp()) {
+            // Solo dentro de un chat abierto (con su caja de texto VACÍA): nunca en la lista de chats
+            AccessibilityNodeInfo campo = buscar(r, CAMPOS);
+            if (campo == null || !campo.isVisibleToUser()) continue;
+            if (campo.getText() != null && campo.getText().toString().trim().length() > 0
+                    && !campo.getText().toString().matches("(?i)^(mensaje|message|escribe).*")) continue;
+            AccessibilityNodeInfo m = buscar(r, MICRO);
+            if (m != null && m.isVisibleToUser()) return m;
+            java.util.ArrayDeque<AccessibilityNodeInfo> cola = new java.util.ArrayDeque<>();
+            cola.add(r);
+            while (!cola.isEmpty()) {
+                AccessibilityNodeInfo x = cola.poll();
+                if (x == null) continue;
+                CharSequence d = x.getContentDescription();
+                String vid = x.getViewIdResourceName() == null ? "" : x.getViewIdResourceName();
+                if (d != null && x.isVisibleToUser() && (vid.isEmpty() || vid.contains("voice"))
+                        && d.toString().length() < 40
+                        && d.toString().matches("(?i).*(mensaje de voz|nota de voz|grabar audio|voice message|record voice).*")) {
+                    return x;
+                }
+                for (int i = 0; i < x.getChildCount(); i++) cola.add(x.getChild(i));
+            }
+        }
+        return null;
+    }
+
+    private void grabarNota(long id, AccessibilityNodeInfo mic) {
+        android.graphics.Rect r = new android.graphics.Rect();
+        mic.getBoundsInScreen(r);
+        int dura = reproductor == null ? 0 : reproductor.getDuration();
+        long total = 1000 + dura + 900;  // un poco de silencio antes y después
+        if (reproductor == null || total > android.accessibilityservice.GestureDescription.getMaxGestureDuration()) {
+            pasarAArchivo(id, "el audio es demasiado largo para grabarlo como nota de voz");
+            return;
+        }
+        final android.media.AudioManager am = (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+        final int canal = android.media.AudioManager.STREAM_ACCESSIBILITY;
+        final int antes = am.getStreamVolume(canal);
+        try {
+            am.setStreamVolume(canal, am.getStreamMaxVolume(canal), 0);
+        } catch (Exception ignored) {
+        }
+        android.graphics.Path p = new android.graphics.Path();
+        p.moveTo(r.exactCenterX(), r.exactCenterY());
+        android.accessibilityservice.GestureDescription g = new android.accessibilityservice.GestureDescription.Builder()
+                .addStroke(new android.accessibilityservice.GestureDescription.StrokeDescription(p, 0, total)).build();
+        paso(id, "grabando la nota de voz (" + Math.round(dura / 1000.0) + " s)");
+        boolean ok = dispatchGesture(g, new GestureResultCallback() {
+            @Override
+            public void onCompleted(android.accessibilityservice.GestureDescription gd) {
+                restaurar(am, canal, antes);
+                principal.postDelayed(() -> comprobarNota(id), 2500);
+            }
+
+            @Override
+            public void onCancelled(android.accessibilityservice.GestureDescription gd) {
+                restaurar(am, canal, antes);
+                terminar(id, "error", "se interrumpió la grabación de la nota de voz (¿se tocó la pantalla?); "
+                        + "puede que WhatsApp no la enviara: mira el chat");
+            }
+        }, principal);
+        if (!ok) {
+            restaurar(am, canal, antes);
+            pasarAArchivo(id, "Android no me dejó mantener pulsado el micrófono");
+            return;
+        }
+        principal.postDelayed(() -> {
+            try {
+                reproductor.start();
+            } catch (Exception e) {
+                paso(id, "no pude reproducir el audio: " + e.getMessage());
+            }
+        }, 1000);
+    }
+
+    private void restaurar(android.media.AudioManager am, int canal, int antes) {
+        try {
+            am.setStreamVolume(canal, antes, 0);
+        } catch (Exception ignored) {
+        }
+        soltarReproductor();
+    }
+
+    /** Tras soltar el micrófono, WhatsApp la envía. Se comprueba en la lista de chats que aparece como nota de voz. */
+    private void comprobarNota(long id) {
+        performGlobalAction(GLOBAL_ACTION_BACK);
+        principal.postDelayed(() -> {
+            String como = audioYaEnviado();
+            if (como != null) {
+                terminar(id, "enviado", "Nota de voz enviada; en WhatsApp aparece como «" + como + "»");
+            } else {
+                terminar(id, "error", "grabé la nota de voz y solté el micrófono, pero no he podido comprobar que "
+                        + "se enviara: mira el chat. En pantalla: " + volcado());
+            }
+        }, 1800);
     }
 
     @Override
@@ -388,6 +550,18 @@ public class Accesibilidad extends AccessibilityService {
 
     private synchronized void revisar() {
         if (textoEsperado == null || pulsado || System.currentTimeMillis() > caduca) return;
+        if (modoAudio && notaDeVoz) {
+            if (raicesWhatsapp().isEmpty()) return;
+            if (!vioWhatsapp) {
+                vioWhatsapp = true;
+                paso(trabajoId, "chat de WhatsApp abierto");
+            }
+            AccessibilityNodeInfo mic = microfono();
+            if (mic == null) return;
+            pulsado = true;
+            grabarNota(trabajoId, mic);
+            return;
+        }
         if (modoAudio) {
             if (raicesWhatsapp().isEmpty()) return;
             if (!vioWhatsapp) {

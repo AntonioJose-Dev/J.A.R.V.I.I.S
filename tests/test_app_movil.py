@@ -169,7 +169,9 @@ def test_si_la_app_falla_se_dice_y_no_se_da_por_enviado(monkeypatch):
 
 def test_audio_de_whatsapp_se_prepara_con_su_texto():
     datos, desc = movil.preparar_mensaje("whatsapp", "madre", "+34600123456", "Llego a las 8", audio=True)
-    assert datos["audio"] is True and "AUDIO" in desc and "«Llego a las 8»" in desc
+    assert datos["audio"] is True and datos["formato"] == "nota" and "NOTA DE VOZ" in desc and "«Llego a las 8»" in desc
+    datos, desc = movil.preparar_mensaje("whatsapp", "madre", "+34600123456", "Hola", audio=True, como_archivo=True)
+    assert datos["formato"] == "archivo" and "AUDIO (archivo)" in desc
     with pytest.raises(ValueError, match="solo"):
         movil.preparar_mensaje("sms", "madre", "+34600123456", "hola", audio=True)
 

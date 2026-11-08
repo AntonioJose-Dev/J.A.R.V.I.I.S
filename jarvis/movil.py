@@ -147,7 +147,8 @@ def numero_whatsapp(e164: str) -> str:
 
 # --- Acciones con confirmación (mensajes en tu nombre) ---------------------------------
 
-def preparar_mensaje(app: str, nombre: str, numero: str, texto: str, audio: bool = False) -> tuple[dict, str]:
+def preparar_mensaje(app: str, nombre: str, numero: str, texto: str, audio: bool = False,
+                     como_archivo: bool = False) -> tuple[dict, str]:
     if app not in ("sms", "whatsapp"):
         raise ValueError("solo sé mandar SMS o WhatsApp")
     if not texto.strip():
@@ -157,8 +158,10 @@ def preparar_mensaje(app: str, nombre: str, numero: str, texto: str, audio: bool
     datos = {"accion": "mensaje", "app": app, "numero": numero, "texto": texto.strip()[:1000]}
     if audio:
         datos["audio"] = True
+        datos["formato"] = "archivo" if como_archivo else "nota"
         datos["texto"] = datos["texto"][:600]  # un audio de como mucho ~40 segundos
-        return datos, f"mandar un AUDIO de WhatsApp a {nombre} ({numero}) con la voz de JARVIS diciendo: «{datos['texto']}»"
+        tipo = "AUDIO (archivo)" if como_archivo else "NOTA DE VOZ"
+        return datos, f"mandar una {tipo} de WhatsApp a {nombre} ({numero}) con la voz de JARVIS diciendo: «{datos['texto']}»"
     corto = datos["texto"] if len(datos["texto"]) <= 200 else datos["texto"][:197] + "…"
     return datos, f"mandar un {'WhatsApp' if app == 'whatsapp' else 'SMS'} a {nombre} ({numero}): «{corto}»"
 
@@ -259,8 +262,10 @@ def ejecutar_accion(datos: dict) -> str:
             from . import audio
 
             huella = audio.generar(datos["texto"])
-            trabajo = app_movil.encargar("whatsapp_audio", {"numero": datos["numero"], "sha256": huella})
-            resultado, detalle = app_movil.esperar_resultado(trabajo)
+            formato = datos.get("formato", "nota")
+            trabajo = app_movil.encargar("whatsapp_audio", {"numero": datos["numero"], "sha256": huella, "modo": formato})
+            # La nota de voz se graba en tiempo real: hay que esperar lo que dura el audio (~12 letras por segundo)
+            resultado, detalle = app_movil.esperar_resultado(trabajo, app_movil.ESPERA_RESULTADO + len(datos["texto"]) / 10)
             if resultado == "enviado":
                 return f"Audio de WhatsApp enviado (comprobado por la app JARVIS: {detalle})."
             raise RuntimeError(f"la app JARVIS no pudo enviar el audio: {detalle or resultado}")
@@ -439,23 +444,26 @@ class ControlMovil:
 
     @function_tool
     async def movil_mensaje(self, context: RunContext, app: str, destino: str, texto: str,
-                            como_audio: bool = False) -> str:
+                            como_audio: bool = False, como_archivo: bool = False) -> str:
         """Prepara un SMS o WhatsApp desde el móvil del usuario. Se manda cuando el usuario lo confirma en Telegram.
-        Si pide "un audio" / "una nota de voz" / "díselo en audio", pon como_audio=true: se manda un audio de
-        WhatsApp con la voz de JARVIS diciendo el texto.
+        Si pide "un audio" / "una nota de voz" / "díselo en audio", pon como_audio=true: se manda una nota de voz de
+        WhatsApp con la voz de JARVIS diciendo el texto. Solo si pide expresamente "como archivo" o "como audio
+        normal", pon también como_archivo=true.
 
         Args:
             app: "whatsapp" o "sms".
             destino: nombre de la agenda o número de teléfono.
             texto: el mensaje exacto que hay que mandar (o que se dirá en el audio).
-            como_audio: true para mandarlo como audio de WhatsApp con la voz de JARVIS.
+            como_audio: true para mandarlo como nota de voz de WhatsApp con la voz de JARVIS.
+            como_archivo: true solo si pide el audio como archivo en vez de como nota de voz.
         """
         from . import telefono, telegram_api
         from .pc import registrar
 
         try:
             nombre, numero = telefono.resolver_destino(self.memory, destino)
-            datos, descripcion = preparar_mensaje(app, nombre, numero, texto, audio=bool(como_audio))
+            datos, descripcion = preparar_mensaje(app, nombre, numero, texto, audio=bool(como_audio),
+                                                  como_archivo=bool(como_archivo))
         except (LookupError, ValueError) as e:
             return f"No puedo: {e}."
         accion_id = self.memory.create_action("movil", datos, descripcion)
