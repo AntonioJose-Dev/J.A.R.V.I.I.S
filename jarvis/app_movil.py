@@ -111,7 +111,7 @@ def _guardar_resultado(trabajo_id: int, estado_: str, detalle: str) -> None:
 def _guardar_paso(trabajo_id: int, paso: str) -> None:
     db = _db()
     with db:
-        db.execute("UPDATE app_trabajos SET paso=? WHERE id=?", (paso[:300], trabajo_id))
+        db.execute("UPDATE app_trabajos SET paso=? WHERE id=?", (paso[:1500], trabajo_id))
     db.close()
 
 
@@ -178,7 +178,7 @@ async def _hola(request: web.Request) -> web.Response:
         log.info("App JARVIS (%s): %s", datos.get("version", "?"), str(datos["evento"])[:200])
     if datos.get("paso") and str(datos.get("id", "")).isdigit():
         await asyncio.to_thread(_guardar_paso, int(datos["id"]), str(datos["paso"]))
-        log.info("App, trabajo %s: %s", datos["id"], str(datos["paso"])[:200])
+        log.info("App, trabajo %s: %s", datos["id"], str(datos["paso"])[:1500])
         if str(datos["paso"]).startswith("esperando desbloqueo"):
             await asyncio.to_thread(avisar_desbloqueo)
     return web.json_response({"ok": True})

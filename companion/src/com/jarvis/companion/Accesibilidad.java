@@ -40,6 +40,13 @@ public class Accesibilidad extends AccessibilityService {
         super.onServiceConnected();
         activa = true;
         funcionando = true;
+        try {  // ver también los diálogos de WhatsApp (son ventanas aparte)
+            android.accessibilityservice.AccessibilityServiceInfo info = getServiceInfo();
+            info.flags |= android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+                    | android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
+            setServiceInfo(info);
+        } catch (Exception ignored) {
+        }
         // Si algo revienta, se guarda el motivo y se cuenta al PC en cuanto haya conexión
         final Thread.UncaughtExceptionHandler anterior = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((hilo, t) -> {
@@ -288,6 +295,20 @@ public class Accesibilidad extends AccessibilityService {
             terminar(id, "error", "no pude abrir WhatsApp: " + e.getMessage());
             return;
         }
+        // No solo se espera a los avisos de WhatsApp: se revisa la pantalla cada 0,7 s por si acaso
+        final Runnable revisarCada = new Runnable() {
+            @Override
+            public void run() {
+                if (trabajoId != id || pulsado || System.currentTimeMillis() > caduca) return;
+                revisar();
+                principal.postDelayed(this, 700);
+            }
+        };
+        principal.postDelayed(revisarCada, 700);
+        // A los 12 s sin éxito, se le cuenta al PC qué hay en pantalla (para poder arreglarlo si algo cambia)
+        principal.postDelayed(() -> {
+            if (trabajoId == id && !pulsado) paso(id, "aún no veo el botón; en pantalla: " + volcado());
+        }, 12_000);
         // Si en 30 s no se ha podido pulsar Enviar, se dice el motivo (nunca se da por enviado)
         principal.postDelayed(() -> {
             if (trabajoId == id && !pulsado) terminar(id, "error", diagnostico());
@@ -296,17 +317,43 @@ public class Accesibilidad extends AccessibilityService {
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent e) {
-        if (textoEsperado == null || pulsado || System.currentTimeMillis() > caduca) return;
-        AccessibilityNodeInfo raiz = getRootInActiveWindow();
-        if (raiz == null) return;
-        boolean enWhatsapp = String.valueOf(raiz.getPackageName()).startsWith("com.whatsapp");
-        if (!vioWhatsapp && enWhatsapp) {
-            vioWhatsapp = true;
-            paso(trabajoId, "WhatsApp abierto en pantalla");
+        revisar();
+    }
+
+    /** Las ventanas de WhatsApp que hay en pantalla (la principal y los diálogos, que son ventanas aparte). */
+    private List<AccessibilityNodeInfo> raicesWhatsapp() {
+        List<AccessibilityNodeInfo> raices = new java.util.ArrayList<>();
+        try {
+            for (android.view.accessibility.AccessibilityWindowInfo w : getWindows()) {
+                AccessibilityNodeInfo r = w.getRoot();
+                if (r != null && String.valueOf(r.getPackageName()).startsWith("com.whatsapp")) raices.add(r);
+            }
+        } catch (Exception ignored) {
         }
+        if (raices.isEmpty()) {
+            AccessibilityNodeInfo r = getRootInActiveWindow();
+            if (r != null && String.valueOf(r.getPackageName()).startsWith("com.whatsapp")) raices.add(r);
+        }
+        return raices;
+    }
+
+    private AccessibilityNodeInfo enviarAudioEnPantalla() {
+        for (AccessibilityNodeInfo r : raicesWhatsapp()) {
+            AccessibilityNodeInfo b = botonEnviarAudio(r);
+            if (b != null) return b;
+        }
+        return null;
+    }
+
+    private synchronized void revisar() {
+        if (textoEsperado == null || pulsado || System.currentTimeMillis() > caduca) return;
         if (modoAudio) {
-            if (!enWhatsapp) return;
-            AccessibilityNodeInfo enviar = botonEnviarAudio(raiz);
+            if (raicesWhatsapp().isEmpty()) return;
+            if (!vioWhatsapp) {
+                vioWhatsapp = true;
+                paso(trabajoId, "WhatsApp abierto en pantalla");
+            }
+            AccessibilityNodeInfo enviar = enviarAudioEnPantalla();
             if (enviar == null) return;
             pulsado = true;
             final long id = trabajoId;
@@ -317,14 +364,19 @@ public class Accesibilidad extends AccessibilityService {
             }
             // Comprobación: tras pulsar, la pantalla/diálogo de envío tiene que desaparecer
             principal.postDelayed(() -> {
-                AccessibilityNodeInfo r2 = getRootInActiveWindow();
-                if (r2 != null && botonEnviarAudio(r2) != null) {
+                if (enviarAudioEnPantalla() != null) {
                     terminar(id, "error", "pulsé Enviar pero la pantalla de envío del audio sigue abierta");
                 } else {
                     terminar(id, "enviado", "Audio enviado");
                 }
             }, 2500);
             return;
+        }
+        AccessibilityNodeInfo raiz = getRootInActiveWindow();
+        if (raiz == null) return;
+        if (!vioWhatsapp && String.valueOf(raiz.getPackageName()).startsWith("com.whatsapp")) {
+            vioWhatsapp = true;
+            paso(trabajoId, "WhatsApp abierto en pantalla");
         }
         AccessibilityNodeInfo campo = buscar(raiz, CAMPOS);
         if (campo == null || campo.getText() == null) return;
@@ -353,7 +405,11 @@ public class Accesibilidad extends AccessibilityService {
     /** El botón de enviar de la pantalla (o el diálogo) que WhatsApp muestra al compartirle un audio. */
     private static AccessibilityNodeInfo botonEnviarAudio(AccessibilityNodeInfo raiz) {
         if (!String.valueOf(raiz.getPackageName()).startsWith("com.whatsapp")) return null;
-        AccessibilityNodeInfo b = buscar(raiz, ENVIAR);
+        // Seguridad: si es un chat con texto escrito, su botón Enviar mandaría ESE texto, no el audio
+        AccessibilityNodeInfo campo = buscar(raiz, CAMPOS);
+        boolean hayTextoEscrito = campo != null && campo.getText() != null && campo.getText().toString().trim().length() > 0
+                && campo.isVisibleToUser();
+        AccessibilityNodeInfo b = hayTextoEscrito ? null : buscar(raiz, ENVIAR);
         if (b != null && b.isVisibleToUser()) return b;
         b = buscar(raiz, new String[]{"android:id/button1", "com.whatsapp:id/send_btn", "com.whatsapp.w4b:id/send_btn"});
         if (b != null && b.isVisibleToUser()) return b;
@@ -376,12 +432,37 @@ public class Accesibilidad extends AccessibilityService {
         return false;
     }
 
+    /** Lo que hay en las ventanas de WhatsApp: botones y textos visibles (id | texto | descripción). */
+    private String volcado() {
+        StringBuilder sb = new StringBuilder();
+        java.util.ArrayDeque<AccessibilityNodeInfo> cola = new java.util.ArrayDeque<>(raicesWhatsapp());
+        int n = 0;
+        while (!cola.isEmpty() && n < 30) {
+            AccessibilityNodeInfo x = cola.poll();
+            if (x == null) continue;
+            if (x.isVisibleToUser() && (x.isClickable() || x.getText() != null || x.getContentDescription() != null)) {
+                String id = x.getViewIdResourceName() == null ? "" : x.getViewIdResourceName().replaceAll("^.*:id/", "");
+                String txt = x.getText() == null ? "" : x.getText().toString();
+                String desc = x.getContentDescription() == null ? "" : x.getContentDescription().toString();
+                if (!txt.isEmpty() || !desc.isEmpty() || x.isClickable()) {
+                    sb.append("[").append(id).append("|").append(txt.length() > 25 ? txt.substring(0, 25) : txt)
+                      .append("|").append(desc).append(x.isClickable() ? "|pulsable" : "").append("] ");
+                    n++;
+                }
+            }
+            for (int i = 0; i < x.getChildCount(); i++) cola.add(x.getChild(i));
+        }
+        return sb.length() == 0 ? "(nada visible)" : sb.toString();
+    }
+
     private String diagnostico() {
+        if (modoAudio && !raicesWhatsapp().isEmpty()) {
+            return "WhatsApp se abrió pero no encontré el botón de enviar el audio. En pantalla: " + volcado();
+        }
         AccessibilityNodeInfo raiz = getRootInActiveWindow();
         if (raiz == null) return "no se abrió WhatsApp (o no puedo ver la pantalla)";
         String paquete = String.valueOf(raiz.getPackageName());
         if (!paquete.startsWith("com.whatsapp")) return "WhatsApp no llegó a abrirse (pantalla actual: " + paquete + ")";
-        if (modoAudio) return "WhatsApp se abrió pero no encontré el botón de enviar el audio";
         AccessibilityNodeInfo campo = buscar(raiz, CAMPOS);
         if (campo == null) return "WhatsApp se abrió pero no encontré la caja de texto del chat";
         return "el texto escrito en el chat no coincide con el confirmado, así que no lo envié";
