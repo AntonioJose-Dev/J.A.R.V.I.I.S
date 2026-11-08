@@ -61,7 +61,51 @@ async def test_trabajo_completo_entrega_y_resultado():
 
 def test_sin_respuesta_de_la_app_no_es_exito(monkeypatch):
     tid = app_movil.encargar("whatsapp", {"numero": "+34600123456", "texto": "hola"})
-    assert app_movil.esperar_resultado(tid, 0.6)[0] == "sin_respuesta"
+    estado_, motivo = app_movil.esperar_resultado(tid, 0.6)
+    assert estado_ == "sin_respuesta" and "no llegó al móvil" in motivo
+
+
+def test_entrega_perdida_se_reentrega_solo_si_la_app_acusa_recibo(monkeypatch):
+    reloj = [1000.0]
+    monkeypatch.setattr(app_movil.time, "time", lambda: reloj[0])
+    tid = app_movil.encargar("whatsapp", {"numero": "+34600123456", "texto": "hola"})
+    assert app_movil._siguiente_trabajo(True)["id"] == tid   # entrega que se pierde por el camino
+    reloj[0] += 3
+    assert app_movil._siguiente_trabajo(True) is None         # aún dentro del plazo del acuse
+    reloj[0] += app_movil.ACUSE_EN
+    assert app_movil._siguiente_trabajo(False) is None        # app antigua (sin acuses): nunca dos veces
+    assert app_movil._siguiente_trabajo(True)["id"] == tid    # app 1.7+: se le vuelve a entregar
+    app_movil._guardar_resultado(tid, "recibido", "")
+    reloj[0] += 30
+    assert app_movil._siguiente_trabajo(True) is None         # con acuse ya no se reentrega
+
+
+def test_recibido_y_ultimo_paso_explican_un_atasco():
+    tid = app_movil.encargar("whatsapp", {"numero": "+34600123456", "texto": "hola"})
+    app_movil._siguiente_trabajo(True)
+    app_movil._guardar_resultado(tid, "recibido", "")
+    app_movil._guardar_paso(tid, "WhatsApp abierto en pantalla")
+    estado_, motivo = app_movil.esperar_resultado(tid, 0.6)
+    assert estado_ == "sin_respuesta" and "WhatsApp abierto en pantalla" in motivo
+
+
+def test_un_acuse_tardio_no_pisa_el_resultado():
+    tid = app_movil.encargar("whatsapp", {"numero": "+34600123456", "texto": "hola"})
+    app_movil._siguiente_trabajo(True)
+    app_movil._guardar_resultado(tid, "enviado", "WhatsApp enviado")
+    app_movil._guardar_resultado(tid, "recibido", "")
+    assert app_movil.esperar_resultado(tid, 0.6) == ("enviado", "WhatsApp enviado")
+
+
+async def test_la_app_cuenta_sus_pasos():
+    c = await _cliente()
+    tid = app_movil.encargar("whatsapp", {"numero": "+34600123456", "texto": "hola"})
+    r = await c.post("/app/hola", json={"id": tid, "paso": "pedí abrir el chat"}, headers={"X-Jarvis-Token": TOKEN})
+    assert r.status == 200
+    db = app_movil._db()
+    assert db.execute("SELECT paso FROM app_trabajos WHERE id=?", (tid,)).fetchone()[0] == "pedí abrir el chat"
+    db.close()
+    await c.close()
 
 
 def test_el_movil_usa_la_app_si_esta_conectada(monkeypatch):

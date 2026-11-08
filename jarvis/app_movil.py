@@ -37,6 +37,10 @@ def _db() -> sqlite3.Connection:
         " estado TEXT, resultado TEXT, creado REAL);"
         "CREATE TABLE IF NOT EXISTS app_estado (clave TEXT PRIMARY KEY, valor TEXT);"
     )
+    columnas = {c[1] for c in db.execute("PRAGMA table_info(app_trabajos)")}
+    for col, tipo in (("entregado", "REAL"), ("paso", "TEXT")):
+        if col not in columnas:
+            db.execute(f"ALTER TABLE app_trabajos ADD COLUMN {col} {tipo}")
     return db
 
 
@@ -66,15 +70,27 @@ def encargar(tipo: str, datos: dict) -> int:
     return cur.lastrowid
 
 
-def _siguiente_trabajo() -> dict | None:
-    """El trabajo pendiente más antiguo (de menos de 60 s); lo marca como 'entregado'."""
+ACUSE_EN = 6  # si la app no confirma que lo recibió en estos segundos, se le vuelve a entregar
+EN_CURSO = ("pendiente", "entregado", "recibido")
+
+
+def _siguiente_trabajo(reentregar: bool = False) -> dict | None:
+    """El trabajo pendiente más antiguo (de menos de 60 s); lo marca como 'entregado'.
+
+    Una entrega puede perderse (la conexión del móvil murió sin que el PC se enterase: pantalla apagada,
+    cambio de Wi-Fi a datos...). Por eso la app tiene que acusar recibo; si no lo hace, se reentrega.
+    """
+    ahora = time.time()
     db = _db()
     with db:
-        db.execute("UPDATE app_trabajos SET estado='caducado' WHERE estado='pendiente' AND creado < ?",
-                   (time.time() - 60,))
+        db.execute("UPDATE app_trabajos SET estado='caducado' WHERE estado IN ('pendiente','entregado') AND creado < ?",
+                   (ahora - 60,))
+        if reentregar:  # solo con apps que acusan recibo (1.7+); si no, podría mandarse dos veces
+            db.execute("UPDATE app_trabajos SET estado='pendiente' WHERE estado='entregado' AND entregado < ?",
+                       (ahora - ACUSE_EN,))
         fila = db.execute("SELECT id, tipo, datos FROM app_trabajos WHERE estado='pendiente' ORDER BY id LIMIT 1").fetchone()
         if fila:
-            db.execute("UPDATE app_trabajos SET estado='entregado' WHERE id=?", (fila[0],))
+            db.execute("UPDATE app_trabajos SET estado='entregado', entregado=? WHERE id=?", (ahora, fila[0]))
     db.close()
     return {"id": fila[0], "tipo": fila[1], "datos": json.loads(fila[2])} if fila else None
 
@@ -82,23 +98,39 @@ def _siguiente_trabajo() -> dict | None:
 def _guardar_resultado(trabajo_id: int, estado_: str, detalle: str) -> None:
     db = _db()
     with db:
-        db.execute("UPDATE app_trabajos SET estado=?, resultado=? WHERE id=? AND estado='entregado'",
-                   (estado_, detalle[:500], trabajo_id))
+        if estado_ == "recibido":  # acuse de recibo: solo cuenta mientras el trabajo sigue sin empezar
+            db.execute("UPDATE app_trabajos SET estado='recibido' WHERE id=? AND estado IN ('pendiente','entregado')",
+                       (trabajo_id,))
+        else:
+            db.execute("UPDATE app_trabajos SET estado=?, resultado=? WHERE id=? AND estado IN ('pendiente','entregado','recibido')",
+                       (estado_, detalle[:500], trabajo_id))
+    db.close()
+
+
+def _guardar_paso(trabajo_id: int, paso: str) -> None:
+    db = _db()
+    with db:
+        db.execute("UPDATE app_trabajos SET paso=? WHERE id=?", (paso[:300], trabajo_id))
     db.close()
 
 
 def esperar_resultado(trabajo_id: int, segundos: float = ESPERA_RESULTADO) -> tuple[str, str]:
-    """(estado, detalle) cuando la app termine; ('sin_respuesta', …) si no contesta a tiempo."""
+    """(estado, detalle) cuando la app termine; ('sin_respuesta', motivo) si no contesta a tiempo."""
     fin = time.time() + segundos
+    fila = None
     while time.time() < fin:
         db = _db()
-        fila = db.execute("SELECT estado, resultado FROM app_trabajos WHERE id=?", (trabajo_id,)).fetchone()
+        fila = db.execute("SELECT estado, resultado, paso FROM app_trabajos WHERE id=?", (trabajo_id,)).fetchone()
         db.close()
-        if fila and fila[0] not in ("pendiente", "entregado"):
+        if fila and fila[0] not in EN_CURSO:
             return fila[0], fila[1] or ""
         time.sleep(0.5)
-    _guardar_resultado(trabajo_id, "sin_respuesta", "la app no contestó a tiempo")
-    return "sin_respuesta", "la app no contestó a tiempo"
+    if fila and fila[0] == "recibido":
+        motivo = f"la app lo recibió pero no terminó a tiempo (último paso: {fila[2] or 'ninguno'})"
+    else:
+        motivo = "el encargo no llegó al móvil (¿sin internet, o la app JARVIS dormida por el ahorro de batería?)"
+    _guardar_resultado(trabajo_id, "sin_respuesta", motivo)
+    return "sin_respuesta", motivo
 
 
 # --- Servidor (vive dentro del proceso del bot de Telegram) --------------------------------------------
@@ -138,15 +170,22 @@ async def _hola(request: web.Request) -> web.Response:
     if datos.get("error"):
         guardar_estado(ultimo_error=f"{time.strftime('%H:%M:%S')} {datos['error'][:300]}")
         log.warning("La app JARVIS informa de un error: %s", datos["error"][:300])
+    if datos.get("paso") and str(datos.get("id", "")).isdigit():
+        await asyncio.to_thread(_guardar_paso, int(datos["id"]), str(datos["paso"]))
+        log.info("App, trabajo %s: %s", datos["id"], str(datos["paso"])[:200])
     return web.json_response({"ok": True})
 
 
 async def _espera(request: web.Request) -> web.Response:
-    if await _leer(request) is None:
+    datos = await _leer(request)
+    if datos is None:
         return web.json_response({"error": "código incorrecto"}, status=401)
+    reentregar = datos.get("acuse") is True
     fin = time.time() + ESPERA_LARGA
     while time.time() < fin:
-        trabajo = await asyncio.to_thread(_siguiente_trabajo)
+        if request.transport is None or request.transport.is_closing():
+            return web.Response(status=204)  # el móvil ya colgó: no le entregues nada por aquí
+        trabajo = await asyncio.to_thread(_siguiente_trabajo, reentregar)
         if trabajo:
             log.info("Trabajo %s entregado a la app (%s)", trabajo["id"], trabajo["tipo"])
             return web.json_response(trabajo)

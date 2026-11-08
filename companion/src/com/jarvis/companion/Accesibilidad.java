@@ -54,16 +54,24 @@ public class Accesibilidad extends AccessibilityService {
     private void bucle() {
         int fallos = 0;
         while (funcionando) {
-            Object[] r = Conexion.post(this, "/app/espera", new JSONObject(), 35_000);
+            JSONObject pide = new JSONObject();
+            try {
+                pide.put("acuse", true);  // esta versión confirma cada encargo que recibe
+            } catch (Exception ignored) {
+            }
+            Object[] r = Conexion.post(this, "/app/espera", pide, 35_000);
             int codigo = (int) r[0];
             if (codigo == 200) {
                 fallos = 0;
                 Conexion.anotar(this, "ultimo_contacto", "conectada con el PC");
                 try {
                     JSONObject t = new JSONObject((String) r[1]);
-                    if ("whatsapp".equals(t.getString("tipo"))) {
+                    long id = t.getLong("id");
+                    // Acuse de recibo: si no llega, el PC lo reentrega (por si la entrega se perdió por el camino)
+                    Conexion.post(this, "/app/resultado", new JSONObject().put("id", id).put("estado", "recibido"), 10_000);
+                    if (!yaVisto(id) && "whatsapp".equals(t.getString("tipo"))) {
                         JSONObject d = t.getJSONObject("datos");
-                        long id = t.getLong("id");
+                        paso(id, "recibido; abriendo WhatsApp");
                         principal.post(() -> empezarWhatsapp(id, d.optString("numero"), d.optString("texto")));
                     }
                 } catch (Exception e) {
@@ -82,6 +90,28 @@ public class Accesibilidad extends AccessibilityService {
         }
     }
 
+    // Los últimos encargos ya hechos: un encargo reentregado nunca se manda dos veces
+    private final java.util.ArrayDeque<Long> vistos = new java.util.ArrayDeque<>();
+
+    private synchronized boolean yaVisto(long id) {
+        if (vistos.contains(id)) return true;
+        vistos.addLast(id);
+        if (vistos.size() > 50) vistos.removeFirst();
+        return false;
+    }
+
+    /** Cuenta al PC por dónde va (así, si algo falla, se sabe exactamente dónde). */
+    private void paso(long id, String texto) {
+        new Thread(() -> {
+            try {
+                Conexion.post(this, "/app/hola", new JSONObject().put("id", id).put("paso", texto), 8000);
+            } catch (Exception ignored) {
+            }
+        }).start();
+    }
+
+    private volatile boolean vioWhatsapp = false;
+
     private void empezarWhatsapp(long id, String numero, String texto) {
         if (texto == null || texto.isEmpty() || numero == null || numero.isEmpty()) {
             terminar(id, "error", "orden sin número o sin texto");
@@ -91,6 +121,7 @@ public class Accesibilidad extends AccessibilityService {
         textoEsperado = texto;
         caduca = System.currentTimeMillis() + 30_000;
         pulsado = false;
+        vioWhatsapp = false;
         try {
             String url = "https://wa.me/" + numero.replace("+", "") + "?text=" + URLEncoder.encode(texto, "UTF-8").replace("+", "%20");
             Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
@@ -109,6 +140,7 @@ public class Accesibilidad extends AccessibilityService {
                     return;
                 }
             }
+            paso(id, "pedí abrir el chat en " + i.getPackage());
         } catch (Exception e) {
             terminar(id, "error", "no pude abrir WhatsApp: " + e.getMessage());
             return;
@@ -124,6 +156,10 @@ public class Accesibilidad extends AccessibilityService {
         if (textoEsperado == null || pulsado || System.currentTimeMillis() > caduca) return;
         AccessibilityNodeInfo raiz = getRootInActiveWindow();
         if (raiz == null) return;
+        if (!vioWhatsapp && String.valueOf(raiz.getPackageName()).startsWith("com.whatsapp")) {
+            vioWhatsapp = true;
+            paso(trabajoId, "WhatsApp abierto en pantalla");
+        }
         AccessibilityNodeInfo campo = buscar(raiz, CAMPOS);
         if (campo == null || campo.getText() == null) return;
         if (!normalizar(campo.getText().toString()).equals(normalizar(textoEsperado))) return;
@@ -165,10 +201,14 @@ public class Accesibilidad extends AccessibilityService {
         }
         Conexion.anotar(this, "ultimo_envio", estado + ": " + detalle);
         new Thread(() -> {
-            try {
-                Conexion.post(this, "/app/resultado",
-                        new JSONObject().put("id", id).put("estado", estado).put("detalle", detalle), 10_000);
-            } catch (Exception ignored) {
+            for (int intento = 0; intento < 4; intento++) {  // el resultado tiene que llegar al PC
+                try {
+                    Object[] r = Conexion.post(this, "/app/resultado",
+                            new JSONObject().put("id", id).put("estado", estado).put("detalle", detalle), 10_000);
+                    if ((int) r[0] == 200) return;
+                } catch (Exception ignored) {
+                }
+                dormir(2_000);
             }
         }).start();
     }
