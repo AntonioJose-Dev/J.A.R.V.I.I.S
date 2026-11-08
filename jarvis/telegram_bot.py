@@ -18,6 +18,7 @@ import logging
 import os
 import sys
 import time
+from pathlib import Path
 
 import aiohttp
 import av
@@ -344,6 +345,19 @@ class JarvisTelegram:
     async def manejar(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         msg, user = update.effective_message, update.effective_user
         if msg is None:
+            return
+        imagen = msg.photo[-1] if msg.photo else (
+            msg.document if msg.document and (msg.document.mime_type or "").startswith("image/") else None)
+        if imagen is not None:
+            if user is None or user.id not in self.permitidos:
+                log.warning("Imagen ignorada de un usuario no permitido: id=%s", user.id if user else "?")
+                return
+            carpeta = Path("logs") / "recibidas"
+            carpeta.mkdir(parents=True, exist_ok=True)
+            ruta = carpeta / f"{time.strftime('%Y%m%d-%H%M%S')}-{msg.message_id}.jpg"
+            await (await imagen.get_file()).download_to_drive(ruta)
+            log.info("Imagen recibida y guardada en %s", ruta)
+            await msg.reply_text("📷 Imagen recibida y guardada, señor.")
             return
         tipo = tipo_de_mensaje(msg.text, msg.voice is not None)
         accion = decidir(user.id if user else None, self.permitidos, tipo)
