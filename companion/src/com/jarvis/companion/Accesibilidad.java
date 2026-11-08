@@ -40,7 +40,40 @@ public class Accesibilidad extends AccessibilityService {
         super.onServiceConnected();
         activa = true;
         funcionando = true;
-        new Thread(this::bucle, "jarvis-conexion").start();
+        // Si algo revienta, se guarda el motivo y se cuenta al PC en cuanto haya conexión
+        final Thread.UncaughtExceptionHandler anterior = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((hilo, t) -> {
+            java.io.StringWriter sw = new java.io.StringWriter();
+            t.printStackTrace(new java.io.PrintWriter(sw));
+            Conexion.prefs(this).edit().putString("fallo_pendiente", "la app se cerró por un fallo: "
+                    + sw.toString().substring(0, Math.min(1500, sw.toString().length()))).commit();
+            if (anterior != null) anterior.uncaughtException(hilo, t);
+        });
+        new Thread(() -> {
+            // El bucle de conexión nunca debe morir: si falla, se apunta y vuelve a empezar
+            while (funcionando) {
+                try {
+                    bucle();
+                } catch (Throwable t) {
+                    Conexion.prefs(this).edit().putString("fallo_pendiente", "fallo en la conexión: " + t).apply();
+                    dormir(3_000);
+                }
+            }
+        }, "jarvis-conexion").start();
+    }
+
+    /** Cuenta al PC lo que pasó mientras estaba sin conexión (errores, cierres) para poder explicarlo. */
+    private void contarPendientes(String desconexion) {
+        String fallo = Conexion.prefs(this).getString("fallo_pendiente", null);
+        if (fallo != null) {
+            Conexion.prefs(this).edit().remove("fallo_pendiente").apply();
+            Conexion.error(this, fallo);
+        }
+        if (desconexion != null) Conexion.error(this, desconexion);
+        try {
+            Conexion.post(this, "/app/hola", new JSONObject().put("evento", "servicio escuchando a JARVIS"), 8000);
+        } catch (Exception ignored) {
+        }
     }
 
     @Override
@@ -53,6 +86,8 @@ public class Accesibilidad extends AccessibilityService {
     /** Pregunta al PC si hay trabajo. La petición se queda abierta hasta 25 s (casi no gasta batería). */
     private void bucle() {
         int fallos = 0;
+        String sinConexionDesde = null;
+        boolean primera = true;
         while (funcionando) {
             JSONObject pide = new JSONObject();
             try {
@@ -61,6 +96,12 @@ public class Accesibilidad extends AccessibilityService {
             }
             Object[] r = Conexion.post(this, "/app/espera", pide, 35_000);
             int codigo = (int) r[0];
+            if ((codigo == 200 || codigo == 204) && (primera || sinConexionDesde != null)) {
+                final String motivo = sinConexionDesde;
+                primera = false;
+                sinConexionDesde = null;
+                new Thread(() -> contarPendientes(motivo)).start();
+            }
             if (codigo == 200) {
                 fallos = 0;
                 Conexion.anotar(this, "ultimo_contacto", "conectada con el PC");
@@ -96,6 +137,10 @@ public class Accesibilidad extends AccessibilityService {
             } else {
                 fallos++;
                 String motivo = codigo == -1 ? (String) r[1] : "el PC respondió " + codigo;
+                if (sinConexionDesde == null) {
+                    sinConexionDesde = "estuvo sin conexión con el PC desde las "
+                            + new java.text.SimpleDateFormat("HH:mm:ss").format(new java.util.Date()) + " (" + motivo + ")";
+                }
                 Conexion.anotar(this, "ultimo_error", "sin conexión con el PC: " + motivo);
                 if (fallos == 3 && codigo != -1) Conexion.error(this, "sin conexión con el PC: " + motivo);
                 dormir(Math.min(30_000, 2_000L * fallos));

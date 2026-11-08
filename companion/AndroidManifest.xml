@@ -3,12 +3,14 @@
      (orden firmada con un secreto y de hace menos de 60 segundos). Base de la futura app "Oye Jarvis". -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.jarvis.companion"
-    android:versionCode="10"
-    android:versionName="1.9">
+    android:versionCode="11"
+    android:versionName="1.10">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
     <!-- Para hablar con JARVIS en el PC por Tailscale (red privada y cifrada) -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Para pedir que Android no duerma la app (si la duerme, deja de recibir los encargos de JARVIS) -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Desde Android 11 una app solo "ve" las apps que declara aquí: sin esto, WhatsApp parece no instalado -->
     <queries>
         <package android:name="com.whatsapp" />

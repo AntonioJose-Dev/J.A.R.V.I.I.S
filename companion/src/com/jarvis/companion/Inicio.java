@@ -44,10 +44,15 @@ public class Inicio extends Activity {
                 runOnUiThread(this::pintar);
             }).start();
         });
+        Button bateria = new Button(this);
+        bateria.setText("Dejar que funcione en segundo plano");
+        bateria.setOnClickListener(v -> pedirSinRestriccionDeBateria());
         l.addView(titulo);
         l.addView(estado);
         l.addView(activar);
+        l.addView(bateria);
         l.addView(probar);
+        if (!sinRestriccionDeBateria()) pedirSinRestriccionDeBateria();  // lo pide sola la primera vez
         setContentView(l);
     }
 
@@ -57,12 +62,29 @@ public class Inicio extends Activity {
         pintar();
     }
 
+    private boolean sinRestriccionDeBateria() {
+        android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+        return pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
+    }
+
+    /** Pide a Android que no duerma la app (si no, deja de escuchar a JARVIS al salir de ella). */
+    private void pedirSinRestriccionDeBateria() {
+        try {
+            startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    android.net.Uri.parse("package:" + getPackageName())));
+        } catch (Exception e) {
+            startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+        }
+    }
+
     private void pintar() {
         String activos = Settings.Secure.getString(getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
         boolean permiso = activos != null && activos.contains(getPackageName());
         estado.setText(
             "Versión " + Conexion.VERSION + "\n\n" +
             "Permiso de accesibilidad: " + (permiso ? "✅ activado" : "❌ desactivado (actívalo abajo)") + "\n" +
+            "Segundo plano: " + (sinRestriccionDeBateria() ? "✅ sin restricciones" : "❌ Android puede dormirla (pulsa abajo)") + "\n" +
+            "Escuchando a JARVIS: " + (Accesibilidad.activa ? "✅ sí" : "❌ no") + "\n" +
             "Conexión con el PC: " + Conexion.prefs(this).getString("ultimo_contacto", "todavía no") + "\n" +
             "Último envío: " + Conexion.prefs(this).getString("ultimo_envio", "ninguno") + "\n" +
             "Último error: " + Conexion.prefs(this).getString("ultimo_error", "ninguno") + "\n\n" +

@@ -174,6 +174,8 @@ async def _hola(request: web.Request) -> web.Response:
     if datos.get("error"):
         guardar_estado(ultimo_error=f"{time.strftime('%H:%M:%S')} {datos['error'][:300]}")
         log.warning("La app JARVIS informa de un error: %s", datos["error"][:300])
+    if datos.get("evento"):
+        log.info("App JARVIS (%s): %s", datos.get("version", "?"), str(datos["evento"])[:200])
     if datos.get("paso") and str(datos.get("id", "")).isdigit():
         await asyncio.to_thread(_guardar_paso, int(datos["id"]), str(datos["paso"]))
         log.info("App, trabajo %s: %s", datos["id"], str(datos["paso"])[:200])
